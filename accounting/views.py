@@ -346,3 +346,115 @@ def profit_loss_view(request):
         'total_expense': total_expense,
         'net_profit': net_profit,
     })
+
+def dashboard_view(request):
+    """
+    Executive dashboard with key liquidity metrics, receivables/payables,
+    net profit/loss indicator, and recent transactions.
+    """
+    accounts = Account.objects.filter(is_active=True).annotate(
+        total_debit=Sum('journal_entries__debit'),
+        total_credit=Sum('journal_entries__credit')
+    )
+
+    cash_bank_balance = Decimal('0.00')
+    receivables_balance = Decimal('0.00')
+    payables_balance = Decimal('0.00')
+    total_income = Decimal('0.00')
+    total_expense = Decimal('0.00')
+
+    for acc in accounts:
+        d = acc.total_debit or Decimal('0.00')
+        c = acc.total_credit or Decimal('0.00')
+
+        # Identify Cash/Bank assets (1010, 1020, or assets containing 'Cash'/'Bank')
+        if acc.account_type == AccountType.ASSET:
+            if 'cash' in acc.name.lower() or 'bank' in acc.name.lower():
+                cash_bank_balance += (d - c)
+            elif 'receivable' in acc.name.lower():
+                receivables_balance += (d - c)
+        elif acc.account_type == AccountType.LIABILITY:
+            if 'payable' in acc.name.lower():
+                payables_balance += (c - d)
+        elif acc.account_type == AccountType.INCOME:
+            total_income += (c - d)
+        elif acc.account_type == AccountType.EXPENSE:
+            total_expense += (d - c)
+
+    net_profit = total_income - total_expense
+    recent_transactions = Transaction.objects.prefetch_related('entries__account').order_by('-date', '-id')[:5]
+
+    context = {
+        'cash_bank_balance': cash_bank_balance,
+        'receivables_balance': receivables_balance,
+        'payables_balance': payables_balance,
+        'net_profit': net_profit,
+        'recent_transactions': recent_transactions,
+    }
+    return render(request, 'accounting/dashboard.html', context)
+
+
+def balance_sheet_view(request):
+    """
+    Generates point-in-time balance sheet:
+    Assets = Liabilities + Equity (including current period Net Profit)
+    """
+    accounts = Account.objects.filter(is_active=True).annotate(
+        total_debit=Sum('journal_entries__debit'),
+        total_credit=Sum('journal_entries__credit')
+    ).order_by('code')
+
+    assets = []
+    liabilities = []
+    equity = []
+
+    total_assets = Decimal('0.00')
+    total_liabilities = Decimal('0.00')
+    total_equity_base = Decimal('0.00')
+
+    total_income = Decimal('0.00')
+    total_expense = Decimal('0.00')
+
+    for acc in accounts:
+        d = acc.total_debit or Decimal('0.00')
+        c = acc.total_credit or Decimal('0.00')
+
+        if acc.account_type == AccountType.ASSET:
+            balance = d - c
+            if balance != Decimal('0.00'):
+                assets.append({'account': acc, 'amount': balance})
+                total_assets += balance
+        elif acc.account_type == AccountType.LIABILITY:
+            balance = c - d
+            if balance != Decimal('0.00'):
+                liabilities.append({'account': acc, 'amount': balance})
+                total_liabilities += balance
+        elif acc.account_type == AccountType.EQUITY:
+            balance = c - d
+            if balance != Decimal('0.00'):
+                equity.append({'account': acc, 'amount': balance})
+                total_equity_base += balance
+        elif acc.account_type == AccountType.INCOME:
+            total_income += (c - d)
+        elif acc.account_type == AccountType.EXPENSE:
+            total_expense += (d - c)
+
+    current_period_earnings = total_income - total_expense
+    total_equity_and_reserves = total_equity_base + current_period_earnings
+    total_liabilities_and_equity = total_liabilities + total_equity_and_reserves
+
+    is_balanced = abs(total_assets - total_liabilities_and_equity) < Decimal('0.01')
+
+    context = {
+        'assets': assets,
+        'liabilities': liabilities,
+        'equity': equity,
+        'total_assets': total_assets,
+        'total_liabilities': total_liabilities,
+        'total_equity_base': total_equity_base,
+        'current_period_earnings': current_period_earnings,
+        'total_equity_and_reserves': total_equity_and_reserves,
+        'total_liabilities_and_equity': total_liabilities_and_equity,
+        'is_balanced': is_balanced,
+    }
+    return render(request, 'accounting/balance_sheet.html', context)

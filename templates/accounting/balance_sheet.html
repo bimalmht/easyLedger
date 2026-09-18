@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+
+{% block title %}Balance Sheet - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="w-full bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 lg:p-8">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 mb-6 gap-4">
+    <div>
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900">Balance Sheet</h1>
+      <p class="text-sm text-slate-500">Statement of Financial Position: Assets = Liabilities + Owner's Equity</p>
+    </div>
+    <div>
+      {% if is_balanced %}
+        <span class="px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+          Equation Balanced
+        </span>
+      {% else %}
+        <span class="px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">
+          Out of Balance
+        </span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <!-- Assets Side -->
+    <div class="border border-slate-200 rounded-lg p-5 flex flex-col justify-between">
+      <div>
+        <div class="flex items-center justify-between border-b border-slate-200 pb-2 mb-4">
+          <h2 class="text-base font-bold text-slate-800 uppercase tracking-wide">Assets</h2>
+          <span class="font-mono text-xs text-slate-400 font-semibold">{{ assets|length }} Items</span>
+        </div>
+        <table class="w-full text-sm">
+          <tbody class="divide-y divide-slate-100">
+            {% for row in assets %}
+              <tr>
+                <td class="py-2 font-mono text-xs text-slate-400 w-20">{{ row.account.code }}</td>
+                <td class="py-2 text-slate-800 font-medium">
+                  <a href="{% url 'ledger-statement' row.account.id %}" class="hover:text-indigo-600">{{ row.account.name }}</a>
+                </td>
+                <td class="py-2 text-right font-mono text-slate-900">{{ row.amount|floatformat:2 }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="3" class="py-4 text-center text-slate-400 text-xs">No assets recorded.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="border-t-2 border-slate-300 pt-3 mt-6 flex justify-between items-center font-bold">
+        <span class="uppercase tracking-wider text-xs text-slate-700">Total Assets</span>
+        <span class="font-mono text-base text-slate-900">{{ total_assets|floatformat:2 }}</span>
+      </div>
+    </div>
+
+    <!-- Liabilities & Equity Side -->
+    <div class="border border-slate-200 rounded-lg p-5 flex flex-col justify-between">
+      <div class="space-y-6">
+        <!-- Liabilities Sub-section -->
+        <div>
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 mb-3">
+            <h2 class="text-base font-bold text-slate-800 uppercase tracking-wide">Liabilities</h2>
+            <span class="font-mono text-sm font-semibold text-slate-700">{{ total_liabilities|floatformat:2 }}</span>
+          </div>
+          <table class="w-full text-sm">
+            <tbody class="divide-y divide-slate-100">
+              {% for row in liabilities %}
+                <tr>
+                  <td class="py-2 font-mono text-xs text-slate-400 w-20">{{ row.account.code }}</td>
+                  <td class="py-2 text-slate-800 font-medium">
+                    <a href="{% url 'ledger-statement' row.account.id %}" class="hover:text-indigo-600">{{ row.account.name }}</a>
+                  </td>
+                  <td class="py-2 text-right font-mono text-slate-900">{{ row.amount|floatformat:2 }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="3" class="py-3 text-center text-slate-400 text-xs">No liabilities recorded.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Equity Sub-section -->
+        <div>
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 mb-3">
+            <h2 class="text-base font-bold text-slate-800 uppercase tracking-wide">Owner's Equity & Reserves</h2>
+            <span class="font-mono text-sm font-semibold text-slate-700">{{ total_equity_and_reserves|floatformat:2 }}</span>
+          </div>
+          <table class="w-full text-sm">
+            <tbody class="divide-y divide-slate-100">
+              {% for row in equity %}
+                <tr>
+                  <td class="py-2 font-mono text-xs text-slate-400 w-20">{{ row.account.code }}</td>
+                  <td class="py-2 text-slate-800 font-medium">
+                    <a href="{% url 'ledger-statement' row.account.id %}" class="hover:text-indigo-600">{{ row.account.name }}</a>
+                  </td>
+                  <td class="py-2 text-right font-mono text-slate-900">{{ row.amount|floatformat:2 }}</td>
+                </tr>
+              {% endfor %}
+              <!-- Retained Profit from P&L -->
+              <tr class="bg-indigo-50/50">
+                <td class="py-2 font-mono text-xs text-indigo-400 w-20">AUTO</td>
+                <td class="py-2 text-indigo-900 font-medium">Current Period Retained Earnings (P&L)</td>
+                <td class="py-2 text-right font-mono font-semibold text-indigo-900">{{ current_period_earnings|floatformat:2 }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="border-t-2 border-slate-300 pt-3 mt-6 flex justify-between items-center font-bold">
+        <span class="uppercase tracking-wider text-xs text-slate-700">Total Liabilities & Equity</span>
+        <span class="font-mono text-base text-slate-900">{{ total_liabilities_and_equity|floatformat:2 }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

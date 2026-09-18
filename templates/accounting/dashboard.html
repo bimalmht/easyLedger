@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <!-- Top Welcome & Quick Actions -->
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Financial Overview</h1>
+      <p class="text-sm text-slate-500">Live operational snapshot of your business ledgers.</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <a href="{% url 'voucher-create' %}" class="inline-flex items-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors">
+        + New Voucher
+      </a>
+      <a href="{% url 'trial-balance' %}" class="inline-flex items-center px-4 py-2 text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg shadow-sm transition-colors">
+        View Reports
+      </a>
+    </div>
+  </div>
+
+  <!-- Metric Cards Grid -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+    <!-- Cash & Bank -->
+    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Cash & Bank Liquidity</span>
+      <div class="mt-2 text-2xl font-mono font-bold text-slate-900">
+        {{ cash_bank_balance|floatformat:2 }}
+      </div>
+      <p class="mt-1 text-xs text-slate-400">Total liquid funds available</p>
+    </div>
+
+    <!-- Receivables -->
+    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Accounts Receivable</span>
+      <div class="mt-2 text-2xl font-mono font-bold text-indigo-600">
+        {{ receivables_balance|floatformat:2 }}
+      </div>
+      <p class="mt-1 text-xs text-slate-400">Customer payments due</p>
+    </div>
+
+    <!-- Payables -->
+    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Accounts Payable</span>
+      <div class="mt-2 text-2xl font-mono font-bold text-amber-600">
+        {{ payables_balance|floatformat:2 }}
+      </div>
+      <p class="mt-1 text-xs text-slate-400">Vendor bills outstanding</p>
+    </div>
+
+    <!-- Net Profit -->
+    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Net Result (YTD)</span>
+      <div class="mt-2 text-2xl font-mono font-bold {% if net_profit >= 0 %}text-emerald-600{% else %}text-rose-600{% endif %}">
+        {{ net_profit|floatformat:2 }}
+      </div>
+      <p class="mt-1 text-xs text-slate-400">Total Revenue - Total Expenses</p>
+    </div>
+  </div>
+
+  <!-- Recent Activity Day Book Table -->
+  <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+    <div class="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+      <div>
+        <h2 class="text-base font-bold text-slate-900">Recent Vouchers</h2>
+        <p class="text-xs text-slate-500">The 5 most recent transactions recorded in your books.</p>
+      </div>
+      <a href="{% url 'daybook' %}" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+        View All in Day Book &rarr;
+      </a>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase bg-slate-50">
+            <th class="py-2.5 px-3 w-32">Date</th>
+            <th class="py-2.5 px-3 w-40">Voucher No</th>
+            <th class="py-2.5 px-3">Narration / Particulars</th>
+            <th class="py-2.5 px-3 text-right w-36">Total Amount</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for txn in recent_transactions %}
+            <tr class="hover:bg-slate-50/70 transition-colors">
+              <td class="py-2.5 px-3 font-mono text-xs text-slate-600">{{ txn.date|date:"Y-m-d" }}</td>
+              <td class="py-2.5 px-3 font-mono text-xs font-bold text-indigo-700">{{ txn.voucher_number }}</td>
+              <td class="py-2.5 px-3 text-slate-800">{{ txn.narration }}</td>
+              <td class="py-2.5 px-3 font-mono text-right font-medium text-slate-900">
+                {% with txn.entries.all|first as first_entry %}
+                  {{ first_entry.debit|floatformat:2 }}
+                {% endwith %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="4" class="py-6 text-center text-xs text-slate-400">
+                No vouchers recorded yet.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
