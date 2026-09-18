@@ -1,0 +1,160 @@
+{% extends 'base.html' %}
+
+{% block title %}New Journal Voucher - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="w-full bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 lg:p-8">
+  <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center pb-4 border-b border-slate-200 mb-6 gap-2">
+    <div>
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900">New Journal Entry</h1>
+      <p class="text-sm text-slate-500">Record debit and credit transactions across active ledgers.</p>
+    </div>
+    <div class="sm:text-right">
+      <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Voucher No</span>
+      <div class="text-base font-mono font-semibold text-slate-700">AUTO-GEN</div>
+    </div>
+  </div>
+
+  <form id="voucherForm" method="POST" action="{% url 'voucher-create' %}">
+    {% csrf_token %}
+    
+    <!-- Header Inputs: Responsive 1-col on mobile, 3-cols on medium+ -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">Date</label>
+        <input type="date" name="date" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">Reference No.</label>
+        <input type="text" name="reference" placeholder="e.g. Bank Ref / Cheque No" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">Narration / Note</label>
+        <input type="text" name="narration" placeholder="General voucher description" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+      </div>
+    </div>
+
+    <!-- Line Items Table: Responsive scroll container with dynamic flex column sizing -->
+    <div class="overflow-x-auto mb-6 rounded-lg border border-slate-200">
+      <table class="w-full min-w-[700px] text-left text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase bg-slate-50">
+            <th class="py-3 px-4 w-1/3">Account</th>
+            <th class="py-3 px-4 w-1/3">Description</th>
+            <th class="py-3 px-4 w-44 text-right">Debit</th>
+            <th class="py-3 px-4 w-44 text-right">Credit</th>
+            <th class="py-3 px-3 w-12 text-center"></th>
+          </tr>
+        </thead>
+        <tbody id="entryRows" class="divide-y divide-slate-100"></tbody>
+      </table>
+    </div>
+
+    <!-- Footer Controls -->
+    <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 pt-4 border-t border-slate-200">
+      <button type="button" onclick="addRow()" class="inline-flex items-center justify-center px-4 py-2 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors">
+        + Add Account Line
+      </button>
+
+      <div class="flex flex-wrap items-center justify-end gap-4 sm:gap-6">
+        <div class="text-right">
+          <div class="text-xs text-slate-500 font-medium">Total Debit: <span id="totalDebit" class="font-mono font-bold text-slate-900">0.00</span></div>
+          <div class="text-xs text-slate-500 font-medium">Total Credit: <span id="totalCredit" class="font-mono font-bold text-slate-900">0.00</span></div>
+        </div>
+        <div id="balanceBadge" class="px-3 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">
+          Unbalanced
+        </div>
+        <button type="submit" id="saveBtn" disabled class="opacity-50 cursor-not-allowed px-6 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow transition-colors">
+          Post Voucher
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const accounts = [
+    {% for acc in accounts %}
+      { id: "{{ acc.id }}", name: "{{ acc.code }} - {{ acc.name }}" },
+    {% endfor %}
+  ];
+
+  function createRowHTML() {
+    const options = accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+    return `
+      <tr class="entry-row hover:bg-slate-50/60 transition-colors">
+        <td class="py-2.5 px-4">
+          <select name="account[]" required class="w-full text-sm border border-slate-300 rounded-md px-2.5 py-2 focus:ring-1 focus:ring-indigo-500 bg-white">
+            ${options}
+          </select>
+        </td>
+        <td class="py-2.5 px-4">
+          <input type="text" name="line_description[]" placeholder="Line memo" class="w-full text-sm border border-slate-300 rounded-md px-2.5 py-2">
+        </td>
+        <td class="py-2.5 px-4">
+          <input type="number" name="debit[]" step="0.01" min="0" value="0.00" oninput="calculateTotals(this, 'debit')" class="debit-input text-right w-full font-mono text-sm border border-slate-300 rounded-md px-2.5 py-2">
+        </td>
+        <td class="py-2.5 px-4">
+          <input type="number" name="credit[]" step="0.01" min="0" value="0.00" oninput="calculateTotals(this, 'credit')" class="credit-input text-right w-full font-mono text-sm border border-slate-300 rounded-md px-2.5 py-2">
+        </td>
+        <td class="py-2.5 px-3 text-center">
+          <button type="button" onclick="removeRow(this)" title="Remove Line" class="text-slate-400 hover:text-rose-600 transition-colors text-lg font-bold">&times;</button>
+        </td>
+      </tr>
+    `;
+  }
+
+  function addRow() {
+    document.getElementById('entryRows').insertAdjacentHTML('beforeend', createRowHTML());
+  }
+
+  function removeRow(btn) {
+    const rows = document.querySelectorAll('.entry-row');
+    if (rows.length > 2) {
+      btn.closest('tr').remove();
+      calculateTotals();
+    } else {
+      alert('A transaction must contain at least two entries.');
+    }
+  }
+
+  function calculateTotals(inputElement, type) {
+    if (inputElement && parseFloat(inputElement.value) > 0) {
+      const row = inputElement.closest('tr');
+      if (type === 'debit') row.querySelector('.credit-input').value = '0.00';
+      if (type === 'credit') row.querySelector('.debit-input').value = '0.00';
+    }
+
+    let totalDebit = 0;
+    let totalCredit = 0;
+    document.querySelectorAll('.debit-input').forEach(i => totalDebit += parseFloat(i.value || 0));
+    document.querySelectorAll('.credit-input').forEach(i => totalCredit += parseFloat(i.value || 0));
+
+    document.getElementById('totalDebit').textContent = totalDebit.toFixed(2);
+    document.getElementById('totalCredit').textContent = totalCredit.toFixed(2);
+
+    const badge = document.getElementById('balanceBadge');
+    const saveBtn = document.getElementById('saveBtn');
+    const isBalanced = Math.abs(totalDebit - totalCredit) < 0.001 && totalDebit > 0;
+
+    if (isBalanced) {
+      badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800';
+      badge.textContent = 'Balanced';
+      saveBtn.disabled = false;
+      saveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+      badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800';
+      badge.textContent = `Unbalanced (${(totalDebit - totalCredit).toFixed(2)})`;
+      saveBtn.disabled = true;
+      saveBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    addRow();
+    addRow();
+  });
+</script>
+{% endblock %}
