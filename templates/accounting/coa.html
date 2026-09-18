@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+
+{% block title %}Chart of Accounts - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="w-full bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 lg:p-8">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 mb-6 gap-4">
+    <div>
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900">Chart of Accounts</h1>
+      <p class="text-sm text-slate-500">Summary list of accounts organized by accounting category.</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <input type="text" id="coaSearch" placeholder="Search account or code..." onkeyup="filterAccounts()" class="text-sm border border-slate-300 rounded-lg px-3.5 py-2 w-64 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+    </div>
+  </div>
+
+  <div class="space-y-8">
+    {% for type_key, group in grouped_accounts.items %}
+      {% if group.accounts %}
+        <div class="account-group">
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 mb-3">
+            <h2 class="text-base font-bold text-slate-800 tracking-wide uppercase">{{ group.label }}</h2>
+            <span class="text-xs font-semibold text-slate-400 font-mono">{{ group.accounts|length }} Accounts</span>
+          </div>
+
+          <div class="overflow-x-auto rounded-lg border border-slate-200">
+            <table class="w-full min-w-[650px] text-left text-sm border-collapse">
+              <thead>
+                <tr class="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase bg-slate-50">
+                  <th class="py-2.5 px-4 w-32">Code</th>
+                  <th class="py-2.5 px-4">Account Name</th>
+                  <th class="py-2.5 px-4 w-44 text-right">Net Balance</th>
+                  <th class="py-2.5 px-4 w-24 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                {% for acc in group.accounts %}
+                  <tr class="account-row hover:bg-slate-50/70 transition-colors">
+                    <td class="py-2.5 px-4 font-mono font-medium text-slate-600">{{ acc.code }}</td>
+                    <td class="py-2.5 px-4 font-medium text-slate-900">
+                      <a href="{% url 'ledger-statement' acc.id %}" class="hover:text-indigo-600">
+                        {{ acc.name }}
+                      </a>
+                    </td>
+                    <td class="py-2.5 px-4 font-mono text-right font-medium text-slate-800">
+                      {{ acc.calculated_balance|floatformat:2 }} <span class="text-xs text-slate-400 font-normal">{{ acc.balance_nature }}</span>
+                    </td>
+                    <td class="py-2.5 px-4 text-center">
+                      <a href="{% url 'ledger-statement' acc.id %}" class="inline-flex items-center text-xs font-medium text-indigo-600 hover:text-indigo-800">
+                        Ledger &rarr;
+                      </a>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function filterAccounts() {
+    const input = document.getElementById('coaSearch').value.toLowerCase();
+    const rows = document.querySelectorAll('.account-row');
+
+    rows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      row.style.display = text.includes(input) ? '' : 'none';
+    });
+  }
+</script>
+{% endblock %}

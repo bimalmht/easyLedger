@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ account.name }} - Ledger Statement{% endblock %}
+
+{% block content %}
+<div class="w-full bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 lg:p-8">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 mb-6 gap-4">
+    <div>
+      <div class="flex items-center gap-2">
+        <a href="{% url 'coa' %}" class="text-xs font-semibold text-indigo-600 hover:underline">&larr; Back to COA</a>
+      </div>
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">
+        <span class="font-mono text-slate-400 mr-2">{{ account.code }}</span>{{ account.name }}
+      </h1>
+      <p class="text-xs text-slate-500 mt-0.5">Classification: <strong class="text-slate-700">{{ account.get_account_type_display }}</strong></p>
+    </div>
+    <div class="text-left sm:text-right bg-slate-50 sm:bg-transparent p-3 sm:p-0 rounded-lg">
+      <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ending Balance</span>
+      <div class="text-xl font-mono font-bold text-slate-900">
+        {{ final_balance|floatformat:2 }} <span class="text-xs font-normal text-slate-500">{{ final_nature }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="overflow-x-auto rounded-lg border border-slate-200">
+    <table class="w-full min-w-[760px] text-left text-sm border-collapse">
+      <thead>
+        <tr class="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase bg-slate-50">
+          <th class="py-3 px-4 w-32">Date</th>
+          <th class="py-3 px-4 w-40">Voucher No</th>
+          <th class="py-3 px-4">Particulars / Memo</th>
+          <th class="py-3 px-4 w-36 text-right">Debit</th>
+          <th class="py-3 px-4 w-36 text-right">Credit</th>
+          <th class="py-3 px-4 w-40 text-right">Running Balance</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for line in ledger_lines %}
+          <tr class="hover:bg-slate-50/70 transition-colors">
+            <td class="py-2.5 px-4 font-mono text-xs text-slate-600">{{ line.date|date:"Y-m-d" }}</td>
+            <td class="py-2.5 px-4 font-mono text-xs font-semibold text-indigo-600">{{ line.voucher_number }}</td>
+            <td class="py-2.5 px-4 text-slate-800">{{ line.narration }}</td>
+            <td class="py-2.5 px-4 font-mono text-right text-sm">
+              {% if line.debit > 0 %}{{ line.debit|floatformat:2 }}{% else %}-{% endif %}
+            </td>
+            <td class="py-2.5 px-4 font-mono text-right text-sm">
+              {% if line.credit > 0 %}{{ line.credit|floatformat:2 }}{% else %}-{% endif %}
+            </td>
+            <td class="py-2.5 px-4 font-mono text-right font-medium text-slate-900 bg-slate-50/50">
+              {{ line.balance|floatformat:2 }} <span class="text-xs text-slate-400 font-normal">{{ line.balance_nature }}</span>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6" class="py-8 text-center text-slate-400 text-sm">
+              No transactions recorded for this account yet.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

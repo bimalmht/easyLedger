@@ -4,6 +4,8 @@ from django.db import transaction
 from django.contrib import messages
 from django.utils import timezone
 from .models import Account, Transaction, JournalEntry
+from django.db.models import Sum
+from .models import Account, Transaction, JournalEntry, AccountType
 
 def voucher_create_view(request):
     if request.method == 'POST':
@@ -82,3 +84,78 @@ def voucher_create_view(request):
 def daybook_view(request):
     transactions = Transaction.objects.prefetch_related('entries__account').order_by('-date', '-id')
     return render(request, 'accounting/daybook.html', {'transactions': transactions})
+
+def coa_view(request):
+    """
+    Displays the Chart of Accounts categorized by Account Type
+    along with each account's current net balance.
+    """
+    accounts = Account.objects.filter(is_active=True).annotate(
+        total_debit=Sum('journal_entries__debit'),
+        total_credit=Sum('journal_entries__credit')
+    ).order_by('code')
+
+    grouped_accounts = {}
+    for choice in AccountType.choices:
+        grouped_accounts[choice[0]] = {
+            'label': choice[1],
+            'accounts': []
+        }
+
+    for acc in accounts:
+        d = acc.total_debit or Decimal('0.00')
+        c = acc.total_credit or Decimal('0.00')
+
+        # Normal balances:
+        # Assets & Expenses have normal debit balances (Debit - Credit)
+        # Liabilities, Equity & Income have normal credit balances (Credit - Debit)
+        if acc.account_type in [AccountType.ASSET, AccountType.EXPENSE]:
+            balance = d - c
+            balance_type = 'Dr' if balance >= 0 else 'Cr'
+        else:
+            balance = c - d
+            balance_type = 'Cr' if balance >= 0 else 'Dr'
+
+        acc.calculated_balance = abs(balance)
+        acc.balance_nature = balance_type
+        grouped_accounts[acc.account_type]['accounts'].append(acc)
+
+    return render(request, 'accounting/coa.html', {'grouped_accounts': grouped_accounts})
+
+
+def ledger_statement_view(request, account_id):
+    """
+    Shows the ledger statement / running balance for a specific account.
+    """
+    account = get_object_or_404(Account, id=account_id)
+    entries = JournalEntry.objects.filter(account=account).select_related('transaction').order_by('transaction__date', 'transaction__id')
+
+    # Compute running balance
+    running_balance = Decimal('0.00')
+    ledger_lines = []
+
+    for item in entries:
+        if account.account_type in [AccountType.ASSET, AccountType.EXPENSE]:
+            running_balance += (item.debit - item.credit)
+            balance_nature = 'Dr' if running_balance >= 0 else 'Cr'
+        else:
+            running_balance += (item.credit - item.debit)
+            balance_nature = 'Cr' if running_balance >= 0 else 'Dr'
+
+        ledger_lines.append({
+            'date': item.transaction.date,
+            'voucher_number': item.transaction.voucher_number,
+            'narration': item.line_description or item.transaction.narration,
+            'debit': item.debit,
+            'credit': item.credit,
+            'balance': abs(running_balance),
+            'balance_nature': balance_nature
+        })
+
+    context = {
+        'account': account,
+        'ledger_lines': ledger_lines,
+        'final_balance': abs(running_balance),
+        'final_nature': 'Dr' if (running_balance >= 0 and account.account_type in [AccountType.ASSET, AccountType.EXPENSE]) or (running_balance < 0 and account.account_type not in [AccountType.ASSET, AccountType.EXPENSE]) else 'Cr'
+    }
+    return render(request, 'accounting/ledger_statement.html', context)
