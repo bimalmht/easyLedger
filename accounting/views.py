@@ -3,11 +3,60 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.db import transaction
 from django.contrib import messages
 from django.utils import timezone
-from .models import Account, Transaction, JournalEntry
 from django.db.models import Sum
 from .models import Account, Transaction, JournalEntry, AccountType
+import json
+from django.http import JsonResponse
+from django.views.decorators.http import require_GET, require_POST
+
+# --- Account Code Generation Helpers ---
+
+CATEGORY_PREFIX_MAP = {
+    AccountType.ASSET: 1000,
+    AccountType.LIABILITY: 2000,
+    AccountType.EQUITY: 3000,
+    AccountType.INCOME: 4000,
+    AccountType.EXPENSE: 5000,
+}
+
+def get_next_account_code(account_type):
+    """
+    Finds the highest existing numeric code for the given account category
+    and increments it by 10 (or 1). Defaults to base prefix + 10 if none exist.
+    """
+    base_prefix = CATEGORY_PREFIX_MAP.get(account_type, 1000)
+    existing_accounts = Account.objects.filter(account_type=account_type)
+    
+    numeric_codes = []
+    for acc in existing_accounts:
+        try:
+            numeric_codes.append(int(acc.code))
+        except ValueError:
+            continue
+
+    if numeric_codes:
+        next_code = max(numeric_codes) + 10
+    else:
+        next_code = base_prefix + 10
+
+    return str(next_code)
+
+
+# --- Views ---
 
 def voucher_create_view(request):
+    def get_voucher_context():
+        accounts = Account.objects.filter(is_active=True).order_by('code')
+        accounts_data = [
+            {'id': acc.id, 'name': f"{acc.code} - {acc.name}"}
+            for acc in accounts
+        ]
+        return {
+            'accounts': accounts,
+            'accounts_data': accounts_data,
+            'account_types': AccountType.choices
+        }
+
     if request.method == 'POST':
         date = request.POST.get('date')
         reference = request.POST.get('reference', '')
@@ -42,13 +91,11 @@ def voucher_create_view(request):
 
         if len(valid_entries) < 2:
             messages.error(request, 'A voucher must have at least two non-zero entries.')
-            accounts = Account.objects.filter(is_active=True)
-            return render(request, 'accounting/voucher_form.html', {'accounts': accounts})
+            return render(request, 'accounting/voucher_form.html', get_voucher_context())
 
         if total_debit != total_credit or total_debit == Decimal('0.00'):
             messages.error(request, f'Debit ({total_debit}) and Credit ({total_credit}) must be equal and greater than 0.')
-            accounts = Account.objects.filter(is_active=True)
-            return render(request, 'accounting/voucher_form.html', {'accounts': accounts})
+            return render(request, 'accounting/voucher_form.html', get_voucher_context())
 
         # Atomic commit to ensure complete consistency
         with transaction.atomic():
@@ -77,13 +124,13 @@ def voucher_create_view(request):
         messages.success(request, f'Voucher {voucher_number} posted successfully!')
         return redirect('daybook')
 
-    accounts = Account.objects.filter(is_active=True)
-    return render(request, 'accounting/voucher_form.html', {'accounts': accounts})
+    return render(request, 'accounting/voucher_form.html', get_voucher_context())
 
 
 def daybook_view(request):
     transactions = Transaction.objects.prefetch_related('entries__account').order_by('-date', '-id')
     return render(request, 'accounting/daybook.html', {'transactions': transactions})
+
 
 def coa_view(request):
     """
@@ -159,3 +206,143 @@ def ledger_statement_view(request, account_id):
         'final_nature': 'Dr' if (running_balance >= 0 and account.account_type in [AccountType.ASSET, AccountType.EXPENSE]) or (running_balance < 0 and account.account_type not in [AccountType.ASSET, AccountType.EXPENSE]) else 'Cr'
     }
     return render(request, 'accounting/ledger_statement.html', context)
+
+
+@require_POST
+def account_quick_create_api(request):
+    try:
+        data = json.loads(request.body)
+        account_type = data.get('account_type', '').strip()
+        code = data.get('code', '').strip()
+        name = data.get('name', '').strip()
+
+        if not name or not account_type:
+            return JsonResponse({'status': 'error', 'message': 'Account name and category are required.'}, status=400)
+
+        # Auto-generate if code wasn't provided
+        if not code:
+            code = get_next_account_code(account_type)
+
+        if Account.objects.filter(code=code).exists():
+            return JsonResponse({'status': 'error', 'message': f'Account code {code} already exists.'}, status=400)
+
+        new_acc = Account.objects.create(
+            code=code,
+            name=name,
+            account_type=account_type,
+            is_active=True
+        )
+
+        return JsonResponse({
+            'status': 'success',
+            'account': {
+                'id': new_acc.id,
+                'code': new_acc.code,
+                'name': new_acc.name,
+                'display_text': f"{new_acc.code} - {new_acc.name}"
+            }
+        })
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+@require_GET
+def get_next_code_api(request):
+    account_type = request.GET.get('account_type', '').strip()
+    if not account_type:
+        return JsonResponse({'status': 'error', 'message': 'Account type is required.'}, status=400)
+    
+    next_code = get_next_account_code(account_type)
+    return JsonResponse({'status': 'success', 'next_code': next_code})
+
+def trial_balance_view(request):
+    """
+    Computes real-time closing debit or credit balances for all active accounts.
+    Verifies that total debits equal total credits across the business.
+    """
+    accounts = Account.objects.filter(is_active=True).annotate(
+        total_debit=Sum('journal_entries__debit'),
+        total_credit=Sum('journal_entries__credit')
+    ).order_by('code')
+
+    tb_rows = []
+    grand_debit = Decimal('0.00')
+    grand_credit = Decimal('0.00')
+
+    for acc in accounts:
+        d = acc.total_debit or Decimal('0.00')
+        c = acc.total_credit or Decimal('0.00')
+
+        if d == Decimal('0.00') and c == Decimal('0.00'):
+            continue
+
+        # Calculate net position
+        net = d - c
+        debit_balance = Decimal('0.00')
+        credit_balance = Decimal('0.00')
+
+        if net > 0:
+            debit_balance = net
+        elif net < 0:
+            credit_balance = abs(net)
+
+        grand_debit += debit_balance
+        grand_credit += credit_balance
+
+        tb_rows.append({
+            'account': acc,
+            'debit_balance': debit_balance,
+            'credit_balance': credit_balance,
+        })
+
+    is_balanced = (grand_debit == grand_credit)
+
+    return render(request, 'accounting/trial_balance.html', {
+        'tb_rows': tb_rows,
+        'grand_debit': grand_debit,
+        'grand_credit': grand_credit,
+        'is_balanced': is_balanced,
+    })
+
+
+def profit_loss_view(request):
+    """
+    Calculates operational performance: Total Revenue minus Total Expenses.
+    """
+    accounts = Account.objects.filter(
+        is_active=True,
+        account_type__in=[AccountType.INCOME, AccountType.EXPENSE]
+    ).annotate(
+        total_debit=Sum('journal_entries__debit'),
+        total_credit=Sum('journal_entries__credit')
+    ).order_by('code')
+
+    income_rows = []
+    expense_rows = []
+    total_income = Decimal('0.00')
+    total_expense = Decimal('0.00')
+
+    for acc in accounts:
+        d = acc.total_debit or Decimal('0.00')
+        c = acc.total_credit or Decimal('0.00')
+
+        if acc.account_type == AccountType.INCOME:
+            net_income = c - d
+            if net_income != Decimal('0.00'):
+                income_rows.append({'account': acc, 'amount': net_income})
+                total_income += net_income
+        elif acc.account_type == AccountType.EXPENSE:
+            net_expense = d - c
+            if net_expense != Decimal('0.00'):
+                expense_rows.append({'account': acc, 'amount': net_expense})
+                total_expense += net_expense
+
+    net_profit = total_income - total_expense
+
+    return render(request, 'accounting/profit_loss.html', {
+        'income_rows': income_rows,
+        'expense_rows': expense_rows,
+        'total_income': total_income,
+        'total_expense': total_expense,
+        'net_profit': net_profit,
+    })

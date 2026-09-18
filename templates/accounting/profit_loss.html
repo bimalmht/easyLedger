@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+
+{% block title %}Profit & Loss Statement - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="w-full bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 lg:p-8">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 mb-6 gap-4">
+    <div>
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900">Income Statement (Profit & Loss)</h1>
+      <p class="text-sm text-slate-500">Summary of earned revenue and operational expenses.</p>
+    </div>
+    <div class="text-left sm:text-right bg-slate-50 sm:bg-transparent p-3 sm:p-0 rounded-lg">
+      <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Net Result</span>
+      <div class="text-xl font-mono font-bold {% if net_profit >= 0 %}text-emerald-600{% else %}text-rose-600{% endif %}">
+        {% if net_profit >= 0 %}Net Profit: {{ net_profit|floatformat:2 }}{% else %}Net Loss: ({{ net_profit|floatformat:2 }}){% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <!-- Revenue Section -->
+    <div class="border border-slate-200 rounded-lg p-5">
+      <div class="flex items-center justify-between border-b border-slate-200 pb-2 mb-4">
+        <h2 class="text-base font-bold text-slate-800 uppercase tracking-wide">Operating Income</h2>
+        <span class="font-mono text-sm font-bold text-emerald-600">{{ total_income|floatformat:2 }}</span>
+      </div>
+      <table class="w-full text-sm">
+        <tbody class="divide-y divide-slate-100">
+          {% for row in income_rows %}
+            <tr>
+              <td class="py-2 font-mono text-xs text-slate-400 w-20">{{ row.account.code }}</td>
+              <td class="py-2 text-slate-800 font-medium">{{ row.account.name }}</td>
+              <td class="py-2 text-right font-mono text-slate-900">{{ row.amount|floatformat:2 }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="3" class="py-4 text-center text-slate-400 text-xs">No income recorded.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Expenses Section -->
+    <div class="border border-slate-200 rounded-lg p-5">
+      <div class="flex items-center justify-between border-b border-slate-200 pb-2 mb-4">
+        <h2 class="text-base font-bold text-slate-800 uppercase tracking-wide">Operating Expenses</h2>
+        <span class="font-mono text-sm font-bold text-rose-600">{{ total_expense|floatformat:2 }}</span>
+      </div>
+      <table class="w-full text-sm">
+        <tbody class="divide-y divide-slate-100">
+          {% for row in expense_rows %}
+            <tr>
+              <td class="py-2 font-mono text-xs text-slate-400 w-20">{{ row.account.code }}</td>
+              <td class="py-2 text-slate-800 font-medium">{{ row.account.name }}</td>
+              <td class="py-2 text-right font-mono text-slate-900">{{ row.amount|floatformat:2 }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="3" class="py-4 text-center text-slate-400 text-xs">No expenses recorded.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

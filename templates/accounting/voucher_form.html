@@ -9,16 +9,22 @@
       <h1 class="text-xl sm:text-2xl font-bold text-slate-900">New Journal Entry</h1>
       <p class="text-sm text-slate-500">Record debit and credit transactions across active ledgers.</p>
     </div>
-    <div class="sm:text-right">
-      <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Voucher No</span>
-      <div class="text-base font-mono font-semibold text-slate-700">AUTO-GEN</div>
+    <div class="flex items-center gap-3">
+      <!-- Quick Account Master Creator Button -->
+      <button type="button" onclick="openAccountModal()" class="px-3.5 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Account Master
+      </button>
+      <div class="sm:text-right sm:border-l sm:border-slate-200 sm:pl-4">
+        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Voucher No</span>
+        <div class="text-base font-mono font-semibold text-slate-700">AUTO-GEN</div>
+      </div>
     </div>
   </div>
 
   <form id="voucherForm" method="POST" action="{% url 'voucher-create' %}">
     {% csrf_token %}
     
-    <!-- Header Inputs: Responsive 1-col on mobile, 3-cols on medium+ -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
       <div>
         <label class="block text-xs font-semibold text-slate-600 mb-1">Date</label>
@@ -34,7 +40,7 @@
       </div>
     </div>
 
-    <!-- Line Items Table: Responsive scroll container with dynamic flex column sizing -->
+    <!-- Line Items Table -->
     <div class="overflow-x-auto mb-6 rounded-lg border border-slate-200">
       <table class="w-full min-w-[700px] text-left text-sm border-collapse">
         <thead>
@@ -71,23 +77,76 @@
     </div>
   </form>
 </div>
+
+<!-- ================= QUICK CREATE ACCOUNT MODAL ================= -->
+<div id="accountModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full p-6 animate-in fade-in zoom-in duration-150">
+    <div class="flex justify-between items-center pb-3 border-b border-slate-100 mb-4">
+      <h3 class="text-lg font-bold text-slate-900">Quick Create Account</h3>
+      <button type="button" onclick="closeAccountModal()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+    </div>
+
+    <div id="modalAlert" class="hidden mb-3 p-2.5 text-xs rounded-lg font-medium"></div>
+
+    <form id="quickAccountForm" onsubmit="event.preventDefault(); submitAccountMaster();">
+      <div class="space-y-3.5">
+        <!-- Category comes first so it determines the code prefix -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Account Category</label>
+          <select id="m_type" required onchange="fetchNextCode()" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
+            {% for code, label in account_types %}
+              <option value="{{ code }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-xs font-semibold text-slate-600">Account Code</label>
+            <span class="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-medium">Auto-generated</span>
+          </div>
+          <input type="text" id="m_code" readonly placeholder="Generating..." class="w-full text-sm font-mono bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-700 cursor-not-allowed focus:outline-none">
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Account Name</label>
+          <input type="text" id="m_name" required placeholder="e.g. Travel & Conveyance, Office Supplies" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+        <button type="button" onclick="closeAccountModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+          Cancel
+        </button>
+        <button type="submit" id="modalSaveBtn" class="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow transition-colors">
+          Save & Add
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
-<script>
-  const accounts = [
-    {% for acc in accounts %}
-      { id: "{{ acc.id }}", name: "{{ acc.code }} - {{ acc.name }}" },
-    {% endfor %}
-  ];
+{{ accounts_data|json_script:"accounts-data" }}
 
-  function createRowHTML() {
-    const options = accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+<script>
+  let accounts = JSON.parse(document.getElementById('accounts-data').textContent);
+
+  function getAccountOptionsHTML(selectedId = null) {
+    return accounts.map(a => `<option value="${a.id}" ${String(a.id) === String(selectedId) ? 'selected' : ''}>${a.name}</option>`).join('');
+  }
+
+  function getAccountOptionsHTML(selectedId = null) {
+    return accounts.map(a => `<option value="${a.id}" ${String(a.id) === String(selectedId) ? 'selected' : ''}>${a.name}</option>`).join('');
+  }
+
+  function createRowHTML(selectedId = null) {
     return `
       <tr class="entry-row hover:bg-slate-50/60 transition-colors">
         <td class="py-2.5 px-4">
-          <select name="account[]" required class="w-full text-sm border border-slate-300 rounded-md px-2.5 py-2 focus:ring-1 focus:ring-indigo-500 bg-white">
-            ${options}
+          <select name="account[]" required class="account-select w-full text-sm border border-slate-300 rounded-md px-2.5 py-2 focus:ring-1 focus:ring-indigo-500 bg-white">
+            ${getAccountOptionsHTML(selectedId)}
           </select>
         </td>
         <td class="py-2.5 px-4">
@@ -106,8 +165,8 @@
     `;
   }
 
-  function addRow() {
-    document.getElementById('entryRows').insertAdjacentHTML('beforeend', createRowHTML());
+  function addRow(selectedId = null) {
+    document.getElementById('entryRows').insertAdjacentHTML('beforeend', createRowHTML(selectedId));
   }
 
   function removeRow(btn) {
@@ -149,6 +208,94 @@
       badge.textContent = `Unbalanced (${(totalDebit - totalCredit).toFixed(2)})`;
       saveBtn.disabled = true;
       saveBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+  }
+
+  // --- Auto-generate Code API Call ---
+  async function fetchNextCode() {
+    const type = document.getElementById('m_type').value;
+    const codeInput = document.getElementById('m_code');
+    if (!type) return;
+
+    codeInput.value = 'Loading...';
+    try {
+      const res = await fetch(`{% url 'account-next-code' %}?account_type=${type}`);
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        codeInput.value = data.next_code;
+      } else {
+        codeInput.value = '';
+      }
+    } catch (err) {
+      codeInput.value = '';
+    }
+  }
+
+  // --- Modal Logic ---
+  function openAccountModal() {
+    document.getElementById('modalAlert').classList.add('hidden');
+    document.getElementById('quickAccountForm').reset();
+    document.getElementById('accountModal').classList.remove('hidden');
+    // Pre-populate code for the initial selected category
+    fetchNextCode();
+    // Auto-focus the account name field
+    setTimeout(() => document.getElementById('m_name').focus(), 100);
+  }
+
+  function closeAccountModal() {
+    document.getElementById('accountModal').classList.add('hidden');
+  }
+
+  async function submitAccountMaster() {
+    const code = document.getElementById('m_code').value;
+    const name = document.getElementById('m_name').value;
+    const account_type = document.getElementById('m_type').value;
+    const alertBox = document.getElementById('modalAlert');
+    const btn = document.getElementById('modalSaveBtn');
+
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      const response = await fetch("{% url 'account-quick-create' %}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": "{{ csrf_token }}"
+        },
+        body: JSON.stringify({ code, name, account_type })
+      });
+
+      const res = await response.json();
+
+      if (response.ok && res.status === 'success') {
+        // Add to client array
+        accounts.push({ id: res.account.id, name: res.account.display_text });
+
+        // Update all existing dropdown selectors in the table
+        document.querySelectorAll('.account-select').forEach(select => {
+          const currentVal = select.value;
+          const opt = document.createElement('option');
+          opt.value = res.account.id;
+          opt.textContent = res.account.display_text;
+          select.appendChild(opt);
+          select.value = currentVal; // preserve selection
+        });
+
+        // Add a new row pre-selected to this newly created account
+        addRow(res.account.id);
+
+        closeAccountModal();
+      } else {
+        alertBox.textContent = res.message || 'Error creating account';
+        alertBox.className = 'mb-3 p-2.5 text-xs rounded-lg font-medium bg-rose-50 text-rose-700 border border-rose-200 block';
+      }
+    } catch (err) {
+      alertBox.textContent = 'Network or server error occurred.';
+      alertBox.className = 'mb-3 p-2.5 text-xs rounded-lg font-medium bg-rose-50 text-rose-700 border border-rose-200 block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save & Add';
     }
   }
 
