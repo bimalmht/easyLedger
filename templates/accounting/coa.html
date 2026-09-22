@@ -10,7 +10,7 @@
       <p class="text-sm text-slate-500">Summary list of accounts organized by accounting category.</p>
     </div>
     <div class="flex items-center gap-3">
-      <input type="text" id="coaSearch" placeholder="Search account or code..." onkeyup="filterAccounts()" class="text-sm border border-slate-300 rounded-lg px-3.5 py-2 w-64 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+      <input type="text" id="coaSearch" placeholder="Search account or code..." oninput="filterAccounts()" class="text-sm border border-slate-300 rounded-lg px-3.5 py-2 w-64 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
     </div>
   </div>
 
@@ -60,18 +60,4 @@
     {% endfor %}
   </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-  function filterAccounts() {
-    const input = document.getElementById('coaSearch').value.toLowerCase();
-    const rows = document.querySelectorAll('.account-row');
-
-    rows.forEach(row => {
-      const text = row.textContent.toLowerCase();
-      row.style.display = text.includes(input) ? '' : 'none';
-    });
-  }
-</script>
 {% endblock %}

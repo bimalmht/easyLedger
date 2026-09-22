@@ -4,7 +4,7 @@ from django.db import transaction
 from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Sum
-from .models import Account, Transaction, JournalEntry, AccountType
+from .models import Account, Transaction, JournalEntry, AccountType, Customer, Invoice, InvoiceItem
 import json
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST
@@ -458,3 +458,159 @@ def balance_sheet_view(request):
         'is_balanced': is_balanced,
     }
     return render(request, 'accounting/balance_sheet.html', context)
+
+
+def invoice_list_view(request):
+    invoices = Invoice.objects.select_related('customer').order_by('-date', '-id')
+    return render(request, 'accounting/invoice_list.html', {'invoices': invoices})
+
+
+def invoice_create_view(request):
+    if request.method == 'POST':
+        customer_id = request.POST.get('customer_id')
+        date = request.POST.get('date')
+        due_date = request.POST.get('due_date') or None
+        tax_rate = Decimal(request.POST.get('tax_rate') or '0.00')
+        notes = request.POST.get('notes', '')
+
+        descriptions = request.POST.getlist('description[]')
+        quantities = request.POST.getlist('quantity[]')
+        unit_prices = request.POST.getlist('unit_price[]')
+
+        subtotal = Decimal('0.00')
+        line_items = []
+
+        for desc, qty, price in zip(descriptions, quantities, unit_prices):
+            desc = desc.strip()
+            q_val = Decimal(qty or '0.00')
+            p_val = Decimal(price or '0.00')
+
+            if not desc or q_val <= 0 or p_val <= 0:
+                continue
+
+            line_amt = round(q_val * p_val, 2)
+            subtotal += line_amt
+            line_items.append({
+                'description': desc,
+                'quantity': q_val,
+                'unit_price': p_val,
+                'amount': line_amt
+            })
+
+        if not line_items:
+            messages.error(request, 'Invoice must contain at least one valid line item.')
+            customers = Customer.objects.all().order_by('name')
+            return render(request, 'accounting/invoice_form.html', {'customers': customers})
+
+        tax_amount = round(subtotal * (tax_rate / Decimal('100.00')), 2)
+        grand_total = subtotal + tax_amount
+
+        with transaction.atomic():
+            # Generate Invoice Number: INV-YYYYMM-XXXX
+            ym = timezone.now().strftime('%Y%m')
+            inv_count = Invoice.objects.filter(invoice_number__startswith=f"INV-{ym}").count() + 1
+            invoice_number = f"INV-{ym}-{inv_count:04d}"
+
+            customer = Customer.objects.get(id=customer_id)
+
+            # Auto-generate corresponding journal voucher
+            jv_count = Transaction.objects.filter(voucher_number__startswith=f"JV-{ym}").count() + 1
+            jv_number = f"JV-{ym}-{jv_count:04d}"
+
+            txn = Transaction.objects.create(
+                date=date,
+                voucher_number=jv_number,
+                reference=invoice_number,
+                narration=f"Sales Invoice {invoice_number} to {customer.name}"
+            )
+
+            # Fetch or fallback ledger accounts
+            ar_account = Account.objects.filter(code='1030').first() or Account.objects.filter(account_type=AccountType.ASSET, name__icontains='Receivable').first()
+            sales_account = Account.objects.filter(code='4010').first() or Account.objects.filter(account_type=AccountType.INCOME, name__icontains='Sales').first()
+            tax_account = Account.objects.filter(code='2020').first() or Account.objects.filter(account_type=AccountType.LIABILITY, name__icontains='Tax').first()
+
+            # Debit Accounts Receivable
+            JournalEntry.objects.create(
+                transaction=txn,
+                account=ar_account,
+                debit=grand_total,
+                credit=Decimal('0.00'),
+                line_description=f"Receivable from {customer.name}"
+            )
+
+            # Credit Sales Revenue
+            JournalEntry.objects.create(
+                transaction=txn,
+                account=sales_account,
+                debit=Decimal('0.00'),
+                credit=subtotal,
+                line_description="Gross sales income"
+            )
+
+            # Credit Tax/VAT Payable if applicable
+            if tax_amount > Decimal('0.00') and tax_account:
+                JournalEntry.objects.create(
+                    transaction=txn,
+                    account=tax_account,
+                    debit=Decimal('0.00'),
+                    credit=tax_amount,
+                    line_description=f"Tax on sales ({tax_rate}%)"
+                )
+
+            # Save Invoice record linked to journal transaction
+            invoice = Invoice.objects.create(
+                invoice_number=invoice_number,
+                customer=customer,
+                date=date,
+                due_date=due_date,
+                subtotal=subtotal,
+                tax_rate=tax_rate,
+                tax_amount=tax_amount,
+                grand_total=grand_total,
+                notes=notes,
+                transaction=txn
+            )
+
+            for item in line_items:
+                InvoiceItem.objects.create(
+                    invoice=invoice,
+                    description=item['description'],
+                    quantity=item['quantity'],
+                    unit_price=item['unit_price'],
+                    amount=item['amount']
+                )
+
+        messages.success(request, f"Invoice {invoice_number} posted and synced with General Ledger.")
+        return redirect('invoice-list')
+
+    customers = Customer.objects.all().order_by('name')
+    return render(request, 'accounting/invoice_form.html', {'customers': customers})
+
+
+@require_POST
+def customer_quick_create_api(request):
+    try:
+        data = json.loads(request.body)
+        name = data.get('name', '').strip()
+        tax_number = data.get('tax_number', '').strip()
+        phone = data.get('phone', '').strip()
+        address = data.get('address', '').strip()  # <--- Extract address
+
+        if not name:
+            return JsonResponse({'status': 'error', 'message': 'Customer name is required.'}, status=400)
+
+        customer = Customer.objects.create(
+            name=name,
+            tax_number=tax_number,
+            phone=phone,
+            address=address  # <--- Save address
+        )
+        return JsonResponse({
+            'status': 'success',
+            'customer': {
+                'id': customer.id,
+                'name': customer.name
+            }
+        })
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
