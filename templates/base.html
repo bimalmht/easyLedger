@@ -4,88 +4,167 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}EasyLedger{% endblock %}</title>
+  <title>{% block title %}EasyLedger ERP{% endblock %}</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col font-sans">
 
-  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
-    <div class="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-      <div class="flex items-center space-x-3">
-        <a href="{% url 'dashboard' %}" class="text-xl font-black text-indigo-600 tracking-tight">EasyLedger</a>
+  <!-- Main Navigation Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        
+        <!-- Left: Brand & Company Badge -->
+        <div class="flex items-center gap-3">
+          <a href="{% url 'dashboard' %}" class="text-xl font-black text-indigo-600 tracking-tight flex items-center gap-1.5">
+            <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            EasyLedger
+          </a>
 
-        {% if current_company %}
-          <div class="ml-3 flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-slate-800 text-xs font-semibold">
-            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-            {{ current_company.name }}
-          </div>
-        {% endif %}
-      </div>
+          {% if current_company %}
+            <div class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200 max-w-[200px] truncate" title="{{ current_company.name }}">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+              <span class="truncate">{{ current_company.name }}</span>
+            </div>
+          {% endif %}
+        </div>
 
-      {% if user.is_authenticated %}
-        <nav class="flex items-center space-x-5 text-sm font-medium text-slate-600">
-          <a href="{% url 'dashboard' %}" class="hover:text-indigo-600">Dashboard</a>
-          <a href="{% url 'invoice-list' %}" class="hover:text-indigo-600">Invoices</a>
-          <a href="{% url 'voucher-create' %}" class="hover:text-indigo-600">New Voucher</a>
-          <a href="{% url 'daybook' %}" class="hover:text-indigo-600">Day Book</a>
+        {% if user.is_authenticated %}
+          <!-- Desktop Navigation -->
+          <nav class="hidden lg:flex items-center space-x-1 text-xs font-semibold text-slate-600">
+            <a href="{% url 'dashboard' %}" class="px-3 py-2 rounded-lg hover:text-indigo-600 hover:bg-slate-50 transition-colors">
+              Dashboard
+            </a>
 
-          <!-- Master Dropdown -->
-          <div class="relative inline-block text-left" id="masterDropdownContainer">
-            <button type="button" 
-                    onclick="toggleMasterMenu(event)" 
-                    class="hover:text-indigo-600 flex items-center gap-1 focus:outline-none font-semibold text-slate-700">
-              <span>Master</span>
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-              </svg>
-            </button>
-            <div id="masterDropdownMenu" 
-                 class="hidden absolute left-0 mt-2 w-52 rounded-xl bg-white shadow-xl border border-slate-200 py-2 z-50 text-xs">
-              <a href="{% url 'tax-list' %}" class="block px-4 py-2.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 font-medium">
-                Tax Configuration
-              </a>
-              <a href="{% url 'product-list' %}" class="block px-4 py-2.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 font-medium">
-                Product Master
-              </a>
-              <a href="{% url 'coa' %}" class="block px-4 py-2.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 font-medium">
-                Chart of Accounts
-              </a>
-              <div class="border-t border-slate-100 my-1"></div>
-              <a href="{% url 'template-list' %}" class="block px-4 py-2.5 text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 font-medium">
-                Invoice Templates
+            <!-- 1. Sales Dropdown -->
+            <div class="relative dropdown-container">
+              <button type="button" onclick="toggleDropdown('salesDropdownMenu')" class="px-3 py-2 rounded-lg hover:text-indigo-600 hover:bg-slate-50 transition-colors flex items-center gap-1">
+                <span>Sales</span>
+                <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div id="salesDropdownMenu" class="dropdown-menu hidden absolute left-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50">
+                <div class="px-3 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Invoicing</div>
+                <a href="{% url 'invoice-list' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Tax Invoices (कर बीजक)</a>
+                <a href="{% url 'invoice-create' %}" class="block px-3 py-2 text-indigo-600 hover:bg-indigo-50 font-bold">+ New Tax Invoice</a>
+                <div class="border-t border-slate-100 my-1"></div>
+                <div class="px-3 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Returns (Schedule 6)</div>
+                <a href="{% url 'credit-note-list' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Credit Notes (क्रेडिट नोट)</a>
+                <a href="{% url 'credit-note-create' %}" class="block px-3 py-2 text-indigo-600 hover:bg-indigo-50 font-bold">+ Issue Credit Note</a>
+              </div>
+            </div>
+
+            <!-- 2. Finance Dropdown -->
+            <div class="relative dropdown-container">
+              <button type="button" onclick="toggleDropdown('financeDropdownMenu')" class="px-3 py-2 rounded-lg hover:text-indigo-600 hover:bg-slate-50 transition-colors flex items-center gap-1">
+                <span>Finance</span>
+                <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div id="financeDropdownMenu" class="dropdown-menu hidden absolute left-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50">
+                <div class="px-3 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Bookkeeping</div>
+                <a href="{% url 'voucher-create' %}" class="block px-3 py-2 text-indigo-600 hover:bg-indigo-50 font-bold">+ New Voucher (JV)</a>
+                <a href="{% url 'daybook' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Day Book</a>
+                <a href="{% url 'coa' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Chart of Accounts</a>
+                <div class="border-t border-slate-100 my-1"></div>
+                <div class="px-3 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Financial Reports</div>
+                <a href="{% url 'trial-balance' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Trial Balance</a>
+                <a href="{% url 'profit-loss' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Profit & Loss</a>
+                <a href="{% url 'balance-sheet' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Balance Sheet</a>
+              </div>
+            </div>
+
+            <!-- 3. Master Dropdown -->
+            <div class="relative dropdown-container">
+              <button type="button" onclick="toggleDropdown('masterDropdownMenu')" class="px-3 py-2 rounded-lg hover:text-indigo-600 hover:bg-slate-50 transition-colors flex items-center gap-1">
+                <span>Master</span>
+                <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div id="masterDropdownMenu" class="dropdown-menu hidden absolute left-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50">
+                <a href="{% url 'tax-list' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Tax Configurations</a>
+                <a href="{% url 'product-list' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Product Master</a>
+                <a href="{% url 'template-list' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Invoice Templates</a>
+              </div>
+            </div>
+
+            <!-- 4. Independent Compliance Item -->
+            <a href="{% url 'audit-trail' %}" class="px-3 py-2 rounded-lg hover:text-indigo-600 hover:bg-slate-50 transition-colors">
+              Audit Trail
+            </a>
+
+            <!-- Right: Admin / User Profile -->
+            <div class="flex items-center gap-2.5 pl-3 ml-2 border-l border-slate-200">
+              {% if user.is_superuser %}
+                <a href="/admin/" target="_blank" class="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md border border-indigo-200">
+                  Admin Portal &nearr;
+                </a>
+              {% endif %}
+              <span class="text-[11px] font-mono text-slate-500">{{ user.username }}</span>
+              <a href="{% url 'logout' %}" class="text-[11px] font-bold text-rose-600 hover:text-rose-700 hover:underline">
+                Logout
               </a>
             </div>
+          </nav>
+
+          <!-- Mobile Hamburger Toggle Button -->
+          <div class="lg:hidden flex items-center">
+            <button type="button" onclick="toggleMobileMenu()" class="p-2 rounded-lg text-slate-600 hover:text-indigo-600 hover:bg-slate-100">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"/></svg>
+            </button>
           </div>
+        {% endif %}
 
-          <!-- Reports / Ledgers -->
-          <a href="{% url 'trial-balance' %}" class="hover:text-indigo-600">Trial Balance</a>
-          <a href="{% url 'profit-loss' %}" class="hover:text-indigo-600">Profit & Loss</a>
-          <a href="{% url 'balance-sheet' %}" class="hover:text-indigo-600">Balance Sheet</a>
-          <a href="{% url 'audit-trail' %}" class="hover:text-indigo-600">Audit Trail</a>
+      </div>
 
+      <!-- Mobile Navigation Drawer -->
+      {% if user.is_authenticated %}
+        <div id="mobileMenu" class="hidden lg:hidden border-t border-slate-200 py-3 space-y-2 text-xs font-semibold text-slate-700">
+          <a href="{% url 'dashboard' %}" class="block px-3 py-2 rounded-md hover:bg-indigo-50 hover:text-indigo-600">Dashboard</a>
+
+          <!-- Sales Mobile Section -->
+          <div class="px-3 py-1 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Sales</div>
+          <a href="{% url 'invoice-list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Tax Invoices</a>
+          <a href="{% url 'invoice-create' %}" class="block pl-6 pr-3 py-1.5 text-indigo-600 font-bold hover:bg-indigo-50">+ New Tax Invoice</a>
+          <a href="{% url 'credit-note-list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Credit Notes (Schedule 6)</a>
+          <a href="{% url 'credit-note-create' %}" class="block pl-6 pr-3 py-1.5 text-indigo-600 font-bold hover:bg-indigo-50">+ Issue Credit Note</a>
+
+          <!-- Finance Mobile Section -->
+          <div class="px-3 py-1 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Finance</div>
+          <a href="{% url 'voucher-create' %}" class="block pl-6 pr-3 py-1.5 text-indigo-600 font-bold hover:bg-indigo-50">+ New Voucher (JV)</a>
+          <a href="{% url 'daybook' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Day Book</a>
+          <a href="{% url 'coa' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Chart of Accounts</a>
+          <a href="{% url 'trial-balance' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Trial Balance</a>
+          <a href="{% url 'profit-loss' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Profit & Loss</a>
+          <a href="{% url 'balance-sheet' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Balance Sheet</a>
+
+          <!-- Master Mobile Section -->
+          <div class="px-3 py-1 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Master Data</div>
+          <a href="{% url 'tax-list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Tax Configurations</a>
+          <a href="{% url 'product-list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Product Master</a>
+          <a href="{% url 'template-list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Invoice Templates</a>
+
+          <!-- Audit & Logout -->
+          <div class="border-t border-slate-200 my-2 pt-2"></div>
+          <a href="{% url 'audit-trail' %}" class="block px-3 py-2 hover:bg-indigo-50">Audit Trail (IRD Compliance)</a>
           {% if user.is_superuser %}
-            <a href="/admin/" target="_blank" class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-md hover:bg-indigo-100">
-              Admin Portal &nearr;
-            </a>
+            <a href="/admin/" target="_blank" class="block px-3 py-2 text-indigo-600 font-bold hover:bg-indigo-50">Admin Portal &nearr;</a>
           {% endif %}
-
-          <div class="flex items-center gap-3 pl-3 border-l border-slate-200">
-            <span class="text-xs text-slate-500 font-mono">{{ user.username }}</span>
-            <a href="{% url 'logout' %}" class="text-xs font-semibold text-rose-600 hover:text-rose-800">
-              Logout
-            </a>
+          <div class="flex items-center justify-between px-3 py-2 mt-2 bg-slate-100 rounded-lg">
+            <span class="font-mono text-[11px]">{{ user.username }}</span>
+            <a href="{% url 'logout' %}" class="font-bold text-rose-600">Logout</a>
           </div>
-        </nav>
+        </div>
       {% endif %}
+
     </div>
   </header>
 
-  <main class="flex-1 w-full p-4 sm:p-6 lg:p-8">
+  <!-- Notification Messages -->
+  <main class="flex-1 w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
     {% if messages %}
       <div class="mb-6 space-y-2">
         {% for message in messages %}
-          <div class="p-3.5 rounded-lg text-sm font-medium {% if message.tags == 'error' %}bg-rose-50 text-rose-800 border border-rose-200{% else %}bg-emerald-50 text-emerald-800 border border-emerald-200{% endif %}">
-            {{ message }}
+          <div class="p-3.5 rounded-xl text-xs font-semibold flex items-center justify-between {% if message.tags == 'error' %}bg-rose-50 text-rose-800 border border-rose-200{% else %}bg-emerald-50 text-emerald-800 border border-emerald-200{% endif %}">
+            <span>{{ message }}</span>
+            <button type="button" onclick="this.parentElement.remove()" class="text-slate-400 hover:text-slate-600 ml-3">&times;</button>
           </div>
         {% endfor %}
       </div>
@@ -96,18 +175,27 @@
   </main>
 
   <script>
-    function toggleMasterMenu(event) {
-      event.stopPropagation();
-      const menu = document.getElementById('masterDropdownMenu');
-      menu.classList.toggle('hidden');
+    function toggleDropdown(id) {
+      const target = document.getElementById(id);
+      const isCurrentlyOpen = !target.classList.contains('hidden');
+
+      // Close all other dropdown menus
+      document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.add('hidden'));
+
+      if (!isCurrentlyOpen) {
+        target.classList.remove('hidden');
+      }
     }
 
-    // Close dropdown when clicking outside
+    function toggleMobileMenu() {
+      const mobileMenu = document.getElementById('mobileMenu');
+      mobileMenu.classList.toggle('hidden');
+    }
+
+    // Close open dropdowns on outside click
     document.addEventListener('click', function(e) {
-      const menu = document.getElementById('masterDropdownMenu');
-      const container = document.getElementById('masterDropdownContainer');
-      if (menu && container && !container.contains(e.target)) {
-        menu.classList.add('hidden');
+      if (!e.target.closest('.dropdown-container')) {
+        document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.add('hidden'));
       }
     });
   </script>

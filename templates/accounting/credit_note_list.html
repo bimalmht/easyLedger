@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+
+{% block title %}Credit Notes (Schedule 6) - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-4">
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+    <div>
+      <div class="inline-block px-2.5 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 mb-1">
+        Nepal IRD Schedule 6 / अनुसूची–६ (नियम १७)
+      </div>
+      <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Credit Notes & Sales Returns</h1>
+      <p class="text-xs text-slate-500 mt-0.5">Manage tax reversals and customer sales return credit adjustments.</p>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <a href="{% url 'credit-note-create' %}" class="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        + Issue Credit Note
+      </a>
+    </div>
+  </div>
+
+  <!-- Credit Note Register Table -->
+  <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs text-slate-600">
+        <thead class="bg-slate-50 text-slate-700 uppercase font-bold border-b border-slate-200 text-[11px] tracking-wider">
+          <tr>
+            <th class="py-3 px-4">CN Number</th>
+            <th class="py-3 px-4">Date</th>
+            <th class="py-3 px-4">Ref Invoice</th>
+            <th class="py-3 px-4">Customer Name</th>
+            <th class="py-3 px-4">PAN</th>
+            <th class="py-3 px-4">Return Reason</th>
+            <th class="py-3 px-4 text-right">Taxable Subtotal</th>
+            <th class="py-3 px-4 text-right">VAT</th>
+            <th class="py-3 px-4 text-right">Grand Total</th>
+            <th class="py-3 px-4 text-center">Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 font-mono text-[11px]">
+          {% for cn in credit_notes %}
+            <tr class="hover:bg-slate-50/80 transition-colors">
+              <td class="py-3 px-4 font-bold text-indigo-600">
+                <a href="{% url 'credit-note-detail' cn.id %}" class="hover:underline">
+                  {{ cn.credit_note_number }}
+                </a>
+              </td>
+              <td class="py-3 px-4 text-slate-500">{{ cn.date|date:"Y-m-d" }}</td>
+              <td class="py-3 px-4 font-semibold text-slate-800">
+                <a href="{% url 'invoice-detail' cn.original_invoice.id %}" class="hover:underline text-slate-700 hover:text-indigo-600">
+                  {{ cn.original_invoice.invoice_number }}
+                </a>
+              </td>
+              <td class="py-3 px-4 font-sans font-medium text-slate-900">{{ cn.customer.name }}</td>
+              <td class="py-3 px-4 text-slate-600">{{ cn.customer.tax_number|default:"N/A" }}</td>
+              <td class="py-3 px-4 font-sans">
+                <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
+                  {{ cn.get_reason_display }}
+                </span>
+              </td>
+              <td class="py-3 px-4 text-right font-medium text-slate-700">Rs. {{ cn.taxable_subtotal|floatformat:2 }}</td>
+              <td class="py-3 px-4 text-right font-medium text-slate-700">Rs. {{ cn.tax_amount|floatformat:2 }}</td>
+              <td class="py-3 px-4 text-right font-bold text-slate-900">Rs. {{ cn.grand_total|floatformat:2 }}</td>
+              <td class="py-3 px-4 text-center font-sans">
+                <a href="{% url 'credit-note-detail' cn.id %}" class="px-2.5 py-1 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50 rounded border border-indigo-200">
+                  View & Print
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="10" class="py-10 text-center text-slate-400 font-sans text-xs">
+                No Credit Notes issued yet for this company.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

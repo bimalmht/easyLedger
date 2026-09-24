@@ -296,3 +296,64 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"[{self.timestamp}] {self.username} - {self.action} on {self.table_name}"
+    
+    # ==============================================================================
+# 8. Sales Return & Credit Note (Nepal IRD Schedule 6 / अनुसूची-६)
+# ==============================================================================
+
+class CreditNote(models.Model):
+    RETURN_REASONS = [
+        ("GOODS_RETURN", "Goods Returned by Customer"),
+        ("DAMAGED_EXPIRED", "Damaged or Expired Goods"),
+        ("RATE_DIFFERENCE", "Price / Rate Discrepancy Correction"),
+        ("DISCOUNT_POST_SALE", "Post-Sale Discount / Rebate"),
+        ("OTHER", "Other Regulatory Adjustment"),
+    ]
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="credit_notes")
+    credit_note_number = models.CharField(max_length=50)
+    original_invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="credit_notes")
+    customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="credit_notes")
+    date = models.DateField()
+    reason = models.CharField(max_length=50, choices=RETURN_REASONS, default="GOODS_RETURN")
+    reason_details = models.TextField(blank=True, help_text="Specific remarks justifying the credit adjustment")
+
+    # Financial figures
+    taxable_subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    grand_total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+
+    # General ledger link
+    transaction = models.OneToOneField(
+        Transaction,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="credit_note"
+    )
+
+    # IRD Audit & Reprint tracking
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="created_credit_notes", null=True, blank=True)
+    print_count = models.PositiveIntegerField(default=0, verbose_name="Times Printed")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("company", "credit_note_number")
+        ordering = ["-date", "-id"]
+
+    def __str__(self):
+        return f"{self.credit_note_number} (Ref: {self.original_invoice.invoice_number})"
+
+
+class CreditNoteItem(models.Model):
+    credit_note = models.ForeignKey(CreditNote, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True)
+    description = models.CharField(max_length=255)
+    hs_code = models.CharField(max_length=50, blank=True)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1.00)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+
+    def __str__(self):
+        return f"{self.description} ({self.quantity} x {self.unit_price})"

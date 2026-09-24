@@ -22,6 +22,12 @@ urlpatterns = [
     path('profit-and-loss/', views.profit_loss_view, name='profit-loss'),
     path('balance-sheet/', views.balance_sheet_view, name='balance-sheet'),
     
+    # Credit Notes
+    path('credit-notes/', views.credit_note_list_view, name='credit-note-list'),
+    path('credit-notes/new/', views.credit_note_create_view, name='credit-note-create'),
+    path('credit-notes/<int:credit_note_id>/', views.credit_note_detail_view, name='credit-note-detail'),
+    path('api/invoices/<int:invoice_id>/items/', views.invoice_items_api, name='invoice-items-api'),
+    
     # Masters (Tax & Products)
     path('masters/taxes/', views.tax_list_view, name='tax-list'),
     path('masters/taxes/new/', views.tax_create_edit_view, name='tax-create'),

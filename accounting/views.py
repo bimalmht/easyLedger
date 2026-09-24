@@ -30,6 +30,8 @@ from .models import (
     TaxConfiguration,
     Product,
     Customer,
+    CreditNote,
+    CreditNoteItem,
 )
 
 # ==============================================================================
@@ -1013,3 +1015,225 @@ def invoice_create_view(request):
         return redirect('invoice-list')
 
     return render(request, 'accounting/invoice_form.html')
+
+def credit_note_list_view(request):
+    credit_notes = CreditNote.objects.filter(company=request.company).select_related('customer', 'original_invoice')
+    return render(request, 'accounting/credit_note_list.html', {'credit_notes': credit_notes})
+
+
+def credit_note_create_view(request):
+    comp = request.company
+
+    if request.method == 'POST':
+        invoice_id = request.POST.get('invoice_id')
+        date = request.POST.get('date')
+        reason = request.POST.get('reason')
+        reason_details = request.POST.get('reason_details', '').strip()
+
+        original_invoice = get_object_or_404(Invoice, id=invoice_id, company=comp)
+        customer = original_invoice.customer
+
+        # Read line items returned
+        descriptions = request.POST.getlist('description[]')
+        hs_codes = request.POST.getlist('hs_code[]')
+        quantities = request.POST.getlist('quantity[]')
+        unit_prices = request.POST.getlist('unit_price[]')
+        product_ids = request.POST.getlist('product_id[]')
+
+        taxable_subtotal = Decimal('0.00')
+        line_items = []
+
+        for i in range(len(descriptions)):
+            desc = descriptions[i].strip()
+            qty = Decimal(quantities[i] or '0.00')
+            price = Decimal(unit_prices[i] or '0.00')
+            h_code = hs_codes[i] if i < len(hs_codes) else '-'
+            p_id = product_ids[i] if i < len(product_ids) and product_ids[i] else None
+
+            if not desc or qty <= 0:
+                continue
+
+            line_amt = round(qty * price, 2)
+            taxable_subtotal += line_amt
+            line_items.append({
+                'product_id': p_id,
+                'description': desc,
+                'hs_code': h_code,
+                'quantity': qty,
+                'unit_price': price,
+                'amount': line_amt
+            })
+
+        if not line_items:
+            messages.error(request, "A Credit Note must include at least one returned line item.")
+            return redirect('credit-note-create')
+
+        tax_rate = original_invoice.tax_rate
+        tax_amount = round(taxable_subtotal * (tax_rate / Decimal('100.00')), 2)
+        grand_total = taxable_subtotal + tax_amount
+
+        with transaction.atomic():
+            ym = timezone.now().strftime('%Y%m')
+            cn_count = CreditNote.objects.filter(company=comp, credit_note_number__startswith=f"CN-{ym}").count() + 1
+            credit_note_number = f"CN-{ym}-{cn_count:04d}"
+
+            jv_count = Transaction.objects.filter(company=comp, voucher_number__startswith=f"JV-{ym}").count() + 1
+            jv_number = f"JV-{ym}-{jv_count:04d}"
+
+            # Post reversing Double-Entry Journal Voucher
+            txn = Transaction.objects.create(
+                company=comp,
+                date=date,
+                voucher_number=jv_number,
+                reference=credit_note_number,
+                narration=f"Credit Note {credit_note_number} against Invoice {original_invoice.invoice_number} ({reason})"
+            )
+
+            # Ledgers: Debit Sales Return / Sales, Debit VAT Payable, Credit Accounts Receivable
+            sales_return_acc = Account.objects.filter(company=comp, name__icontains='Return').first() or \
+                               Account.objects.filter(company=comp, code='4010').first()
+            tax_acc = Account.objects.filter(company=comp, code='2020').first()
+            ar_acc = Account.objects.filter(company=comp, code='1030').first()
+
+            JournalEntry.objects.create(
+                transaction=txn,
+                account=sales_return_acc,
+                debit=taxable_subtotal,
+                credit=Decimal('0.00'),
+                line_description=f"Sales reversal on Credit Note {credit_note_number}"
+            )
+            if tax_amount > Decimal('0.00') and tax_acc:
+                JournalEntry.objects.create(
+                    transaction=txn,
+                    account=tax_acc,
+                    debit=tax_amount,
+                    credit=Decimal('0.00'),
+                    line_description=f"VAT reversal ({tax_rate}%) on Credit Note {credit_note_number}"
+                )
+            JournalEntry.objects.create(
+                transaction=txn,
+                account=ar_acc,
+                debit=Decimal('0.00'),
+                credit=grand_total,
+                line_description=f"Credit customer {customer.name} on Credit Note {credit_note_number}"
+            )
+
+            cn = CreditNote.objects.create(
+                company=comp,
+                credit_note_number=credit_note_number,
+                original_invoice=original_invoice,
+                customer=customer,
+                date=date,
+                reason=reason,
+                reason_details=reason_details,
+                taxable_subtotal=taxable_subtotal,
+                tax_rate=tax_rate,
+                tax_amount=tax_amount,
+                grand_total=grand_total,
+                transaction=txn,
+                created_by=request.user
+            )
+
+            for item in line_items:
+                CreditNoteItem.objects.create(
+                    credit_note=cn,
+                    product_id=item['product_id'],
+                    description=item['description'],
+                    hs_code=item['hs_code'],
+                    quantity=item['quantity'],
+                    unit_price=item['unit_price'],
+                    amount=item['amount']
+                )
+
+            # Audit record
+            AuditLog.objects.create(
+                company=comp,
+                user=request.user,
+                username=request.user.username,
+                action='CREATE',
+                table_name='CreditNote',
+                record_id=credit_note_number,
+                ip_address=request.META.get('REMOTE_ADDR'),
+                details=f"Issued Credit Note {credit_note_number} against Invoice {original_invoice.invoice_number}"
+            )
+
+        messages.success(request, f"Credit Note {credit_note_number} generated and posted.")
+        return redirect('credit-note-detail', credit_note_id=cn.id)
+
+    # Preload invoices for selection
+    invoices = Invoice.objects.filter(company=comp).order_by('-date', '-id')[:50]
+    return render(request, 'accounting/credit_note_form.html', {
+        'invoices': invoices,
+        'reasons': CreditNote.RETURN_REASONS
+    })
+
+
+def credit_note_detail_view(request, credit_note_id):
+    cn = get_object_or_404(
+        CreditNote.objects.select_related('customer', 'original_invoice', 'created_by').prefetch_related('items'),
+        id=credit_note_id,
+        company=request.company
+    )
+
+    if request.GET.get('print') == 'true':
+        cn.print_count += 1
+        cn.save(update_fields=['print_count'])
+
+        AuditLog.objects.create(
+            company=request.company,
+            user=request.user,
+            username=request.user.username,
+            action='REPRINT' if cn.print_count > 1 else 'CREATE',
+            table_name='CreditNote',
+            record_id=cn.credit_note_number,
+            ip_address=request.META.get('REMOTE_ADDR'),
+            details=f"Credit Note {cn.credit_note_number} printed. Total prints: {cn.print_count}"
+        )
+        return JsonResponse({'status': 'success', 'print_count': cn.print_count})
+
+    if cn.print_count == 0:
+        copy_text = "Original (खरिदकर्ताको प्रति)"
+        cn_title_nepali = "क्रेडिट नोट"
+        cn_title_english = "CREDIT NOTE"
+    else:
+        copy_text = f"COPY OF ORIGINAL (प्रतिलिपि) #{cn.print_count}"
+        cn_title_nepali = "क्रेडिट नोट (प्रतिलिपि)"
+        cn_title_english = "CREDIT NOTE (COPY)"
+
+    template = InvoiceTemplate.objects.filter(company=request.company, is_default=True).first() or \
+               InvoiceTemplate.objects.filter(company=request.company).first()
+
+    return render(request, 'accounting/credit_note_detail.html', {
+        'cn': cn,
+        'company': request.company,
+        'template': template,
+        'amount_in_words': number_to_words(cn.grand_total),
+        'copy_text': copy_text,
+        'cn_title_nepali': cn_title_nepali,
+        'cn_title_english': cn_title_english,
+        'print_timestamp': timezone.now(),
+    })
+
+
+@require_GET
+def invoice_items_api(request, invoice_id):
+    """Fetches line items of an existing invoice to prepopulate credit note returns."""
+    inv = get_object_or_404(Invoice, id=invoice_id, company=request.company)
+    items = []
+    for item in inv.items.all():
+        items.append({
+            'product_id': item.product_id,
+            'description': item.description,
+            'hs_code': item.hs_code or '-',
+            'quantity': float(item.quantity),
+            'unit_price': float(item.unit_price),
+            'amount': float(item.amount)
+        })
+    return JsonResponse({
+        'status': 'success',
+        'customer_name': inv.customer.name,
+        'customer_pan': inv.customer.tax_number or 'N/A',
+        'invoice_date': inv.date.strftime('%Y-%m-%d'),
+        'tax_rate': float(inv.tax_rate),
+        'items': items
+    })
