@@ -54,3 +54,68 @@
 ---
 
 ## 4. Database Schema Reference (Core Entities)
+
++-----------------------------------------------------------+
+|                          Company                          |
++-----------------------------------------------------------+
+| id, name, pan_number (unique), address, phone, email      |
++-----------------------------------------------------------+
+| 1
+|
+| N
++-----------------------------------------------------------+
+|                     Invoice / Voucher                     |
++-----------------------------------------------------------+
+| id, company_id (FK), invoice_number, date, customer_id    |
+| subtotal, tax_rate, tax_amount, grand_total, status       |
+| print_count, created_by_id (FK), transaction_id (FK)      |
++-----------------------------------------------------------+
+| 1
+|
+| N
++-----------------------------------------------------------+
+|                   InvoiceItem / JournalEntry              |
++-----------------------------------------------------------+
+| id, invoice_id (FK), description, qty, unit_price, amount |
++-----------------------------------------------------------+
+
+---
+
+## 5. Enterprise ERP Development Roadmap
+
+### Phase 1: Core Financial Foundation (Completed)
+- [x] Multi-tenant Chart of Accounts & double-entry Journal Engine.
+- [x] Day Book, General Ledger Statement, Trial Balance, P&L, Balance Sheet.
+- [x] Superuser-only company and credential provisioning in Django Admin.
+- [x] PostgreSQL migration with anti-tampering triggers.
+- [x] Nepal IRD Schedule 5 compliant print templates (A4/A5, Portrait/Landscape).
+- [x] Audit Trail system with reprint counter tracking.
+
+### Phase 2: Advanced Sales Invoicing & Receivables (In Progress)
+- [ ] Sales Return & Credit Notes (`Schedule 6` compliance).
+- [ ] Multi-currency & foreign exchange adjustments.
+- [ ] Customer Ledger Aging Analysis (30 / 60 / 90+ days).
+- [ ] Payment Receipts & automated settlement against open invoices.
+
+### Phase 3: Procurement & Payables
+- [ ] Purchase Requisition & Purchase Order (PO) workflow.
+- [ ] Purchase Tax Invoices with VAT tracking.
+- [ ] Debit Notes & Purchase Returns.
+- [ ] Vendor payment vouchers with TDS (Tax Deducted at Source) entries.
+
+### Phase 4: Inventory & Warehouse Management
+- [ ] Multi-warehouse / branch support.
+- [ ] Stock valuations (FIFO and Weighted Average Costing).
+- [ ] Goods Receipt Notes (GRN) and Delivery Challans.
+- [ ] Stock transfer and write-off vouchers with auto-ledger postings.
+
+### Phase 5: Nepal IRD Regulatory Filings & Integrations
+- [ ] Real-time IRD API Sync (CBMS - Centralized Billing Monitoring System).
+- [ ] VAT Sales Register (खरिद तथा बिक्री खाता - Annex 5 & 7).
+- [ ] VAT Purchase Register (Annex 8).
+- [ ] Periodic VAT Return reconciliation generator.
+
+## 6. Development & Operations Guidelines
+1. **Branching Strategy:** Work on feature branches (`feature/sales-returns`, `feature/inventory-fifo`). Merge into `main` only after DB migrations and trigger integrity pass tests.
+2. **Schema Modifications:** Never modify financial tables without verifying trigger functions in `accounting/migrations/`.
+3. **Template Rules:** Always enforce strict `box-sizing: border-box` and `@media print` constraints for all printable tax documents.
