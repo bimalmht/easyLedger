@@ -614,3 +614,14 @@ def customer_quick_create_api(request):
         })
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+    
+def invoice_detail_view(request, invoice_id):
+    """
+    Renders a printable invoice document with customer billing details,
+    line item breakdown, taxes, and payment status.
+    """
+    invoice = get_object_or_404(
+        Invoice.objects.select_related('customer', 'transaction').prefetch_related('items'),
+        id=invoice_id
+    )
+    return render(request, 'accounting/invoice_detail.html', {'invoice': invoice})

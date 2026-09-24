@@ -7,6 +7,7 @@ urlpatterns = [
     path('vouchers/new/', views.voucher_create_view, name='voucher-create'),
     path('invoices/', views.invoice_list_view, name='invoice-list'),
     path('invoices/new/', views.invoice_create_view, name='invoice-create'),
+    path('invoices/<int:invoice_id>/', views.invoice_detail_view, name='invoice-detail'),  # <--- Added
     path('chart-of-accounts/', views.coa_view, name='coa'),
     path('ledger/<int:account_id>/', views.ledger_statement_view, name='ledger-statement'),
     path('trial-balance/', views.trial_balance_view, name='trial-balance'),
