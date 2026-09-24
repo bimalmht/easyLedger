@@ -80,3 +80,42 @@ class InvoiceItem(models.Model):
 
     def __str__(self):
         return f"{self.description} ({self.quantity} x {self.unit_price})"
+
+class CompanySetting(models.Model):
+    name = models.CharField(max_length=200, default="My Company Pvt. Ltd.")
+    pan_number = models.CharField(max_length=20, default="123456789", verbose_name="Seller PAN/VAT No.")
+    address = models.CharField(max_length=255, default="Kathmandu, Nepal")
+    phone = models.CharField(max_length=50, blank=True, default="+977-1-4000000")
+    email = models.EmailField(blank=True, default="info@mycompany.com.np")
+
+    def __str__(self):
+        return self.name
+
+class InvoiceTemplate(models.Model):
+    PAGE_SIZE_CHOICES = [
+        ('A4_PORTRAIT', 'A4 Portrait (210mm x 297mm)'),
+        ('A4_LANDSCAPE', 'A4 Landscape (297mm x 210mm)'),
+        ('A5_PORTRAIT', 'A5 Portrait (148mm x 210mm)'),
+        ('A5_LANDSCAPE', 'A5 Landscape (210mm x 148mm)'),
+    ]
+
+    title = models.CharField(max_length=100, default="Standard Nepal IRD Tax Invoice")
+    page_size = models.CharField(max_length=20, choices=PAGE_SIZE_CHOICES, default='A4_PORTRAIT')
+    is_default = models.BooleanField(default=False)
+    
+    # Customization flags & options
+    show_hs_code = models.BooleanField(default=True)
+    show_nepali_header = models.BooleanField(default=True, verbose_name="Show 'कर बीजक'")
+    header_subtitle = models.CharField(max_length=150, default="Schedule 5 (Rule 17), VAT Rules 2053")
+    invoice_copy_text = models.CharField(max_length=50, default="Original (खरिदकर्ताको प्रति)")
+    declaration_text = models.TextField(default="We certify that this invoice reflects the actual price of goods/services described.")
+    terms_and_conditions = models.TextField(default="1. Goods once sold are not returnable.\n2. Payment is due within 30 days.")
+    footer_signature_label = models.CharField(max_length=100, default="Authorized Signatory / अधिकृत हस्ताक्षर")
+
+    def save(self, *args, **kwargs):
+        if self.is_default:
+            InvoiceTemplate.objects.exclude(id=self.id).update(is_default=False)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.title} ({self.get_page_size_display()})"

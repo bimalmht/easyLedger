@@ -4,7 +4,7 @@ from django.db import transaction
 from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Sum
-from .models import Account, Transaction, JournalEntry, AccountType, Customer, Invoice, InvoiceItem
+from .models import Account, Transaction, JournalEntry, AccountType, Customer, Invoice, InvoiceItem, Customer, Invoice, InvoiceItem, CompanySetting, InvoiceTemplate
 import json
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST
@@ -625,3 +625,137 @@ def invoice_detail_view(request, invoice_id):
         id=invoice_id
     )
     return render(request, 'accounting/invoice_detail.html', {'invoice': invoice})
+
+def number_to_words(n):
+    """Simple number-to-words converter for invoice totals."""
+    try:
+        n = int(round(Decimal(n)))
+    except Exception:
+        return "Zero"
+
+    units = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"]
+    teens = ["Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"]
+    tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+
+    def convert_below_thousand(num):
+        word = ""
+        if num >= 100:
+            word += units[num // 100] + " Hundred "
+            num %= 100
+        if 10 <= num <= 19:
+            word += teens[num - 10] + " "
+        elif num >= 20:
+            word += tens[num // 10] + " "
+            word += units[num % 10] + " "
+        elif num > 0:
+            word += units[num] + " "
+        return word.strip()
+
+    if n == 0:
+        return "Zero"
+
+    # Nepali Lakh/Crore system
+    crore = n // 10000000
+    n %= 10000000
+    lakh = n // 100000
+    n %= 100000
+    thousand = n // 1000
+    n %= 1000
+    remainder = n
+
+    parts = []
+    if crore > 0:
+        parts.append(convert_below_thousand(crore) + " Crore")
+    if lakh > 0:
+        parts.append(convert_below_thousand(lakh) + " Lakh")
+    if thousand > 0:
+        parts.append(convert_below_thousand(thousand) + " Thousand")
+    if remainder > 0:
+        parts.append(convert_below_thousand(remainder))
+
+    return " ".join(parts).strip() + " Only"
+
+
+def invoice_detail_view(request, invoice_id):
+    """
+    Renders an IRD-compliant tax invoice with custom sizing (A4/A5)
+    and selective template configuration.
+    """
+    invoice = get_object_or_404(
+        Invoice.objects.select_related('customer', 'transaction').prefetch_related('items'),
+        id=invoice_id
+    )
+    
+    # Ensure default company settings & template exist
+    company, _ = CompanySetting.objects.get_or_create(id=1)
+    
+    template_id = request.GET.get('template')
+    if template_id:
+        template = get_object_or_404(InvoiceTemplate, id=template_id)
+    else:
+        template = InvoiceTemplate.objects.filter(is_default=True).first() or \
+                   InvoiceTemplate.objects.first()
+        if not template:
+            template = InvoiceTemplate.objects.create(
+                title="IRD Standard Tax Invoice (A4)",
+                page_size="A4_PORTRAIT",
+                is_default=True
+            )
+
+    all_templates = InvoiceTemplate.objects.all()
+    amount_in_words = number_to_words(invoice.grand_total)
+
+    context = {
+        'invoice': invoice,
+        'company': company,
+        'template': template,
+        'all_templates': all_templates,
+        'amount_in_words': amount_in_words,
+    }
+    return render(request, 'accounting/invoice_detail.html', context)
+
+
+def template_list_view(request):
+    """Template manager view."""
+    templates = InvoiceTemplate.objects.all()
+    company, _ = CompanySetting.objects.get_or_create(id=1)
+    return render(request, 'accounting/template_list.html', {'templates': templates, 'company': company})
+
+
+def template_edit_view(request, template_id=None):
+    """Template designer and editor view."""
+    company, _ = CompanySetting.objects.get_or_create(id=1)
+    template = get_object_or_404(InvoiceTemplate, id=template_id) if template_id else None
+
+    if request.method == 'POST':
+        # Update Company details
+        company.name = request.POST.get('comp_name', company.name)
+        company.pan_number = request.POST.get('comp_pan', company.pan_number)
+        company.address = request.POST.get('comp_address', company.address)
+        company.phone = request.POST.get('comp_phone', company.phone)
+        company.save()
+
+        # Update Template details
+        if not template:
+            template = InvoiceTemplate()
+        
+        template.title = request.POST.get('title')
+        template.page_size = request.POST.get('page_size')
+        template.is_default = request.POST.get('is_default') == 'on'
+        template.show_hs_code = request.POST.get('show_hs_code') == 'on'
+        template.show_nepali_header = request.POST.get('show_nepali_header') == 'on'
+        template.header_subtitle = request.POST.get('header_subtitle', '')
+        template.invoice_copy_text = request.POST.get('invoice_copy_text', '')
+        template.declaration_text = request.POST.get('declaration_text', '')
+        template.terms_and_conditions = request.POST.get('terms_and_conditions', '')
+        template.footer_signature_label = request.POST.get('footer_signature_label', '')
+        template.save()
+
+        messages.success(request, "Invoice template saved successfully.")
+        return redirect('template-list')
+
+    return render(request, 'accounting/template_form.html', {
+        'template': template,
+        'company': company,
+        'page_size_choices': InvoiceTemplate.PAGE_SIZE_CHOICES,
+    })

@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+
+{% block title %}Template Designer - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-slate-200 p-6 sm:p-8">
+  <div class="pb-4 border-b border-slate-200 mb-6">
+    <h1 class="text-xl sm:text-2xl font-bold text-slate-900">
+      {% if template %}Edit Invoice Template{% else %}Create Invoice Template{% endif %}
+    </h1>
+    <p class="text-sm text-slate-500">Configure page geometry, seller credentials, and IRD compliance headers.</p>
+  </div>
+
+  <form method="POST" class="space-y-6">
+    {% csrf_token %}
+
+    <!-- Company Registered Details -->
+    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+      <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wide">1. Seller & PAN Registration Details</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Company / Firm Name</label>
+          <input type="text" name="comp_name" value="{{ company.name }}" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Seller PAN / VAT Number</label>
+          <input type="text" name="comp_pan" value="{{ company.pan_number }}" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white font-mono">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Registered Address</label>
+          <input type="text" name="comp_address" value="{{ company.address }}" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Phone Number</label>
+          <input type="text" name="comp_phone" value="{{ company.phone }}" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white">
+        </div>
+      </div>
+    </div>
+
+    <!-- Paper & Format Options -->
+    <div class="space-y-4">
+      <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wide">2. Page Geometry & Options</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Template Title</label>
+          <input type="text" name="title" value="{{ template.title|default:'My Custom Invoice' }}" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Paper Size & Orientation</label>
+          <select name="page_size" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white">
+            {% for code, label in page_size_choices %}
+              <option value="{{ code }}" {% if template.page_size == code %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-6 pt-2">
+        <label class="inline-flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-700">
+          <input type="checkbox" name="is_default" {% if template.is_default %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
+          Set as Default Template
+        </label>
+        <label class="inline-flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-700">
+          <input type="checkbox" name="show_hs_code" {% if template.show_hs_code %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
+          Display HS Code Column
+        </label>
+        <label class="inline-flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-700">
+          <input type="checkbox" name="show_nepali_header" {% if template.show_nepali_header %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
+          Display 'कर बीजक' in Header
+        </label>
+      </div>
+    </div>
+
+    <!-- Custom Labels & Text Fields -->
+    <div class="space-y-4">
+      <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wide">3. Customizable Text & Notes</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Header Subtitle (Schedule)</label>
+          <input type="text" name="header_subtitle" value="{{ template.header_subtitle|default:'Schedule 5 (Rule 17), VAT Rules 2053' }}" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Copy Indicator Label</label>
+          <input type="text" name="invoice_copy_text" value="{{ template.invoice_copy_text|default:'Original (खरिदकर्ताको प्रति)' }}" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2">
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">Declaration Text</label>
+        <input type="text" name="declaration_text" value="{{ template.declaration_text|default:'We certify that this invoice reflects the actual price of goods/services described.' }}" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2">
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">Terms & Conditions</label>
+        <textarea name="terms_and_conditions" rows="3" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2">{{ template.terms_and_conditions }}</textarea>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">Signature Line Label</label>
+        <input type="text" name="footer_signature_label" value="{{ template.footer_signature_label|default:'Authorized Signatory / अधिकृत हस्ताक्षर' }}" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2">
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-3 pt-4 border-t border-slate-200">
+      <a href="{% url 'template-list' %}" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</a>
+      <button type="submit" class="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm">Save Template Configuration</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
