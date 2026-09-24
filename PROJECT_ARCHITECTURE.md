@@ -5,7 +5,7 @@
 * **Jurisdiction / Compliance:** Inland Revenue Department (IRD) Nepal — Electronic Billing Procedure, 2074 (विद्युतीय बीजक कार्यविधि, २०७४)
 * **Backend Framework:** Python 3.14 / Django 6.x
 * **Database Management System:** PostgreSQL 16+ (Strict ACID compliance, PL/pgSQL database triggers)
-* **Frontend:** Django Server-Side Templates, Tailwind CSS, Vanilla JavaScript (Multi-word search & dynamic DOM reconciliation)
+* **Frontend:** Django Server-Side Templates, Tailwind CSS (Mobile-first responsive drawer & viewports), Vanilla JavaScript
 * **Authentication & Tenancy:** Django Auth, Session & Credential-driven multi-company isolation via custom Middleware
 
 ---
@@ -15,22 +15,32 @@
 * **Segregated Administration:** Superusers exclusively access Django Admin (`/admin/`) to provision `Company` master records and user accounts.
 * **Auto-Seeding:** Saving a new `Company` via Django Admin automatically provisions:
   * Standard Chart of Accounts (COA) mapped to assets, liabilities, equity, revenue, and expense types.
-  * Default Nepal IRD Schedule 5 compliant print template.
+  * Default Nepal IRD Schedule 5 compliant print template (`InvoiceTemplate`).
+  * Default Nepal IRD Schedule 6 compliant print template (`CreditNoteTemplate`).
 * **Access Control & Routing:**
   * `accounting.middleware.MultiCompanyMiddleware` binds `request.company` based on user credentials.
   * Non-superusers are strictly bound to their assigned firm via `UserProfile`.
   * Superusers access `/admin/` directly, respecting `next` redirection parameters.
 * **Isolated Transaction Series:**
   * **Sales Invoices:** `INV-YYYYMM-XXXX` (Partitioned strictly by `company_id`)
+  * **Credit Notes:** `CN-YYYYMM-XXXX` (Partitioned strictly by `company_id`)
   * **Journal Vouchers:** `JV-YYYYMM-XXXX` (Partitioned strictly by `company_id`)
 
 ---
 
 ## 3. Nepal IRD E-Billing Compliance (विद्युतीय बीजक कार्यविधि, २०७४)
 ### 3.1 Immutability & Database-Level Triggers
-* **Delete Prevention (Clause 6.b):** PostgreSQL `BEFORE DELETE` triggers (`prevent_financial_deletion()`) reject deletion attempts on `accounting_invoice`, `accounting_invoiceitem`, `accounting_transaction`, and `accounting_journalentry`.
-* **Tamper Prevention (Clause 6.k):** PostgreSQL `BEFORE UPDATE` triggers (`prevent_invoice_tampering()`) reject unauthorized updates to financial figures (`gross_subtotal`, `taxable_subtotal`, `tax_rate`, `tax_amount`, `grand_total`, `date`, `customer_id`, `invoice_number`).
-* **Controlled Mutability:** Triggers allow system updates strictly on operational metadata: `print_count`, `is_cancelled`, `cancelled_by`, `cancellation_reason`, and `cancelled_at`.
+* **Delete Prevention (Clause 6.b):** PostgreSQL `BEFORE DELETE` triggers (`prevent_financial_deletion()`) reject deletion attempts on:
+  * `accounting_invoice`
+  * `accounting_invoiceitem`
+  * `accounting_creditnote`
+  * `accounting_creditnoteitem`
+  * `accounting_transaction`
+  * `accounting_journalentry`
+* **Tamper Prevention (Clause 6.k):** PostgreSQL `BEFORE UPDATE` triggers:
+  * `prevent_invoice_tampering()` rejects unauthorized updates to invoice financial figures (`gross_subtotal`, `taxable_subtotal`, `tax_rate`, `tax_amount`, `grand_total`, `date`, `customer_id`, `invoice_number`).
+  * `prevent_creditnote_tampering()` rejects modifications to credit note figures, customer linkage, or referenced invoice associations (`credit_note_number`, `taxable_subtotal`, `tax_rate`, `tax_amount`, `grand_total`, `customer_id`, `original_invoice_id`, `date`).
+* **Controlled Mutability:** Triggers permit updates strictly on operational metadata: `print_count`, `is_cancelled`, `cancelled_by`, `cancellation_reason`, and `cancelled_at`.
 
 ### 3.2 Schedule 5 Print & Reprint Controls (Clause 6.f)
 * **First Print (`print_count == 0`):**
@@ -46,20 +56,43 @@
   * `Printed By`: Username of the currently logged-in user triggering the print.
   * `Print Date & Time`: Exact server timestamp of printing.
 
-### 3.3 Audit Trail & Logging (Clause 6.c & 6.j)
+### 3.3 Schedule 6 Credit Notes (नियम १७ - अनुसूची-६)
+* **Mandatory Invoice Reference:** Must reference the original tax invoice number and original date.
+* **Mandatory Reason Classification:** Explicitly captures legal adjustment rationale (`Goods Returned by Customer`, `Damaged or Expired Goods`, `Price / Rate Discrepancy Correction`, `Post-Sale Discount / Rebate`, `Other Regulatory Adjustment`).
+* **Automated Accounting Reversal:**
+  * Debit: **Sales Return** (or Sales Revenue)
+  * Debit: **VAT Payable / Output Tax** (reversing output tax liability)
+  * Credit: **Accounts Receivable** (reducing customer balance)
+* **Reprint Handling:** First print tagged `Original (खरिदकर्ताको प्रति)`, subsequent prints tagged `COPY OF ORIGINAL (प्रतिलिपि) #<N>`.
+
+### 3.4 Audit Trail & Logging (Clause 6.c & 6.j)
 * **Model:** `AuditLog`
 * **Tracked Events:** `LOGIN`, `LOGOUT`, `CREATE`, `REPRINT`, `CANCEL`, `TRIGGER_BLOCK`
 * **Inspection UI:** Dedicated reporting view at `/audit-trail/` filtered by `company_id`.
 
 ---
 
-## 4. Master Data & Sales Configuration Subsystems
-### 4.1 Master Menu & Navigation
-* Centralized **Master** dropdown menu housing:
-  * **Tax Configuration** (`/masters/taxes/`)
-  * **Product Master** (`/masters/products/`)
-  * **Chart of Accounts** (`/chart-of-accounts/`)
-  * **Invoice Templates** (`/templates/`)
+## 4. ERP Modular Navigation & Master Data
+### 4.1 Global Responsive Navigation
+Grouped into functional enterprise modules with mobile drawer support:
+* **Sales:**
+  * Tax Invoices (`/invoices/`)
+  * New Tax Invoice (`/invoices/new/`)
+  * Credit Notes / Schedule 6 (`/credit-notes/`)
+  * Issue Credit Note (`/credit-notes/new/`)
+* **Finance:**
+  * New Voucher JV (`/vouchers/new/`)
+  * Day Book (`/daybook/`)
+  * Chart of Accounts (`/chart-of-accounts/`)
+  * Trial Balance (`/trial-balance/`)
+  * Profit & Loss (`/profit-loss/`)
+  * Balance Sheet (`/balance-sheet/`)
+* **Master:**
+  * Tax Configuration (`/masters/taxes/`)
+  * Product Master (`/masters/products/`)
+  * Invoice Templates (`/templates/`)
+  * Credit Note Templates (`/templates/credit-notes/`)
+* **Audit Trail:** Single-click regulatory inspection (`/audit-trail/`).
 
 ### 4.2 Tax Configuration Engine
 * **Model:** `TaxConfiguration`
@@ -121,13 +154,29 @@
 | print_count, created_by_id (FK), transaction_id (FK)        |
 +-------------------------------------------------------------+
 | 1
++-------------------------------+
+| N                             | 1
++-----------------------------+ +-----------------------------+
+|         InvoiceItem         | |         CreditNote          |
++-----------------------------+ +-----------------------------+
+| id, invoice_id (FK)         | | id, company_id (FK), date   |
+| product_id (FK), description| | credit_note_number          |
+| hs_code, quantity           | | original_invoice_id (FK)    |
+| unit_price, amount, is_free | | customer_id (FK), reason    |
+| promo_badge                 | | taxable_subtotal, tax_rate  |
++-----------------------------+ | tax_amount, grand_total     |
+| print_count, transaction_id |
++-----------------------------+
+| 1
 | N
-+-------------------------------------------------------------+
-|                         InvoiceItem                         |
-+-------------------------------------------------------------+
-| id, invoice_id (FK), product_id (FK), description, hs_code  |
-| quantity, unit_price, amount, is_free, promo_badge          |
-+-------------------------------------------------------------+
++-----------------------------+
+|       CreditNoteItem        |
++-----------------------------+
+| id, credit_note_id (FK)     |
+| product_id (FK), description|
+| hs_code, quantity           |
+| unit_price, amount          |
++-----------------------------+
 ## 6. Enterprise ERP Development Roadmap
 
 ### Phase 1: Core Financial & Compliance Foundation (Completed)
@@ -142,11 +191,13 @@
 - [x] Multi-word fuzzy search for products and customers.
 - [x] Multi-tier discount system (`%`, flat value, free goods, and promotional items).
 
-### Phase 2: Advanced Sales Invoicing & Receivables (Next Sprint)
-- [ ] Sales Return & Credit Notes (`Schedule 6` compliance).
+### Phase 2: Advanced Sales Invoicing & Receivables (In Progress)
+- [x] Sales Return & Credit Notes (`Schedule 6` compliance & automated voucher posting).
+- [x] Credit Note customizable print templates (`CreditNoteTemplate`) with page format switches (A4/A5).
+- [x] Mobile-responsive ERP navigation (Sales, Finance, Master, Audit Trail) and clean dashboard layout.
 - [ ] Customer Ledger Aging Analysis (30 / 60 / 90+ days).
-- [ ] Payment Receipts & automated settlement against open invoices.
-- [ ] Automated email/PDF dispatch of invoices to customer contacts.
+- [ ] Customer Payment Receipts & automated settlement against open invoices.
+- [ ] Automated email/PDF dispatch of invoices and credit notes to customer contacts.
 
 ### Phase 3: Procurement & Payables
 - [ ] Purchase Requisition & Purchase Order (PO) workflow.
