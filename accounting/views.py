@@ -13,6 +13,7 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.decorators import user_passes_test
 from django.contrib.auth.models import User
 from django.utils import timezone
+from django.db.models import Q
 
 from .models import (
     AuditLog,
@@ -25,7 +26,10 @@ from .models import (
     Customer,
     Invoice,
     InvoiceItem,
-    InvoiceTemplate
+    InvoiceTemplate,
+    TaxConfiguration,
+    Product,
+    Customer,
 )
 
 # ==============================================================================
@@ -518,128 +522,6 @@ def invoice_list_view(request):
     return render(request, 'accounting/invoice_list.html', {'invoices': invoices})
 
 
-def invoice_create_view(request):
-    comp = request.company
-
-    if request.method == 'POST':
-        customer_id = request.POST.get('customer_id')
-        date = request.POST.get('date')
-        due_date = request.POST.get('due_date') or None
-        tax_rate = Decimal(request.POST.get('tax_rate') or '0.00')
-        notes = request.POST.get('notes', '')
-
-        descriptions = request.POST.getlist('description[]')
-        quantities = request.POST.getlist('quantity[]')
-        unit_prices = request.POST.getlist('unit_price[]')
-
-        subtotal = Decimal('0.00')
-        line_items = []
-
-        for desc, qty, price in zip(descriptions, quantities, unit_prices):
-            desc = desc.strip()
-            q_val = Decimal(qty or '0.00')
-            p_val = Decimal(price or '0.00')
-
-            if not desc or q_val <= 0 or p_val <= 0:
-                continue
-
-            line_amt = round(q_val * p_val, 2)
-            subtotal += line_amt
-            line_items.append({
-                'description': desc,
-                'quantity': q_val,
-                'unit_price': p_val,
-                'amount': line_amt
-            })
-
-        if not line_items:
-            messages.error(request, 'Invoice must contain at least one valid line item.')
-            customers = Customer.objects.filter(company=comp).order_by('name')
-            return render(request, 'accounting/invoice_form.html', {'customers': customers})
-
-        tax_amount = round(subtotal * (tax_rate / Decimal('100.00')), 2)
-        grand_total = subtotal + tax_amount
-
-        with transaction.atomic():
-            # Company-isolated invoice numbering series
-            ym = timezone.now().strftime('%Y%m')
-            inv_count = Invoice.objects.filter(company=comp, invoice_number__startswith=f"INV-{ym}").count() + 1
-            invoice_number = f"INV-{ym}-{inv_count:04d}"
-
-            customer = get_object_or_404(Customer, id=customer_id, company=comp)
-
-            # Auto-post corresponding JV under current company series
-            jv_count = Transaction.objects.filter(company=comp, voucher_number__startswith=f"JV-{ym}").count() + 1
-            jv_number = f"JV-{ym}-{jv_count:04d}"
-
-            txn = Transaction.objects.create(
-                company=comp,
-                date=date,
-                voucher_number=jv_number,
-                reference=invoice_number,
-                narration=f"Tax Invoice {invoice_number} issued to {customer.name}"
-            )
-
-            ar_account = Account.objects.filter(company=comp, code='1030').first() or \
-                         Account.objects.filter(company=comp, account_type=AccountType.ASSET, name__icontains='Receivable').first()
-            sales_account = Account.objects.filter(company=comp, code='4010').first() or \
-                            Account.objects.filter(company=comp, account_type=AccountType.INCOME, name__icontains='Sales').first()
-            tax_account = Account.objects.filter(company=comp, code='2020').first() or \
-                          Account.objects.filter(company=comp, account_type=AccountType.LIABILITY, name__icontains='Tax').first()
-
-            JournalEntry.objects.create(
-                transaction=txn,
-                account=ar_account,
-                debit=grand_total,
-                credit=Decimal('0.00'),
-                line_description=f"Receivable from {customer.name}"
-            )
-            JournalEntry.objects.create(
-                transaction=txn,
-                account=sales_account,
-                debit=Decimal('0.00'),
-                credit=subtotal,
-                line_description="Gross sales income"
-            )
-            if tax_amount > Decimal('0.00') and tax_account:
-                JournalEntry.objects.create(
-                    transaction=txn,
-                    account=tax_account,
-                    debit=Decimal('0.00'),
-                    credit=tax_amount,
-                    line_description=f"Sales Tax / VAT ({tax_rate}%)"
-                )
-
-            invoice = Invoice.objects.create(
-                company=comp,
-                invoice_number=invoice_number,
-                customer=customer,
-                date=date,
-                due_date=due_date,
-                subtotal=subtotal,
-                tax_rate=tax_rate,
-                tax_amount=tax_amount,
-                grand_total=grand_total,
-                notes=notes,
-                transaction=txn,
-                created_by=request.user
-            )
-
-            for item in line_items:
-                InvoiceItem.objects.create(
-                    invoice=invoice,
-                    description=item['description'],
-                    quantity=item['quantity'],
-                    unit_price=item['unit_price'],
-                    amount=item['amount']
-                )
-
-        messages.success(request, f"Invoice {invoice_number} created and posted to general ledger.")
-        return redirect('invoice-list')
-
-    customers = Customer.objects.filter(company=comp).order_by('name')
-    return render(request, 'accounting/invoice_form.html', {'customers': customers})
-
 def invoice_detail_view(request, invoice_id):
     invoice = get_object_or_404(
         Invoice.objects.select_related('customer', 'transaction', 'created_by').prefetch_related('items'),
@@ -822,3 +704,312 @@ def audit_trail_view(request):
     """Clause 6.j: Front-End view to audit all activities and database actions."""
     logs = AuditLog.objects.filter(company=request.company).order_by('-timestamp')[:200]
     return render(request, 'accounting/audit_trail.html', {'logs': logs})
+
+# ==============================================================================
+# Tax Master Views
+# ==============================================================================
+
+def tax_list_view(request):
+    taxes = TaxConfiguration.objects.filter(company=request.company).order_by('-fiscal_year', 'name')
+    return render(request, 'accounting/tax_list.html', {'taxes': taxes})
+
+
+def tax_create_edit_view(request, tax_id=None):
+    comp = request.company
+    tax = get_object_or_404(TaxConfiguration, id=tax_id, company=comp) if tax_id else None
+    accounts = Account.objects.filter(company=comp, is_active=True).order_by('code')
+
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        tax_type = request.POST.get('tax_type', 'VAT')
+        rate = Decimal(request.POST.get('rate') or '0.00')
+        fiscal_year = request.POST.get('fiscal_year', '').strip()
+        ledger_account_id = request.POST.get('ledger_account')
+
+        ledger_account = Account.objects.filter(id=ledger_account_id, company=comp).first() if ledger_account_id else None
+
+        if not tax:
+            tax = TaxConfiguration(company=comp)
+
+        tax.name = name
+        tax.tax_type = tax_type
+        tax.rate = rate
+        tax.fiscal_year = fiscal_year
+        tax.ledger_account = ledger_account
+        tax.is_active = request.POST.get('is_active') == 'on'
+        tax.save()
+
+        messages.success(request, f"Tax configuration '{tax.name}' saved successfully.")
+        return redirect('tax-list')
+
+    return render(request, 'accounting/tax_form.html', {
+        'tax': tax,
+        'accounts': accounts,
+        'tax_types': TaxType.choices
+    })
+
+
+# ==============================================================================
+# Product Master Views
+# ==============================================================================
+
+def product_list_view(request):
+    products = Product.objects.filter(company=request.company).prefetch_related('taxes').order_by('name')
+    return render(request, 'accounting/product_list.html', {'products': products})
+
+
+def product_create_edit_view(request, product_id=None):
+    comp = request.company
+    product = get_object_or_404(Product, id=product_id, company=comp) if product_id else None
+    taxes = TaxConfiguration.objects.filter(company=comp, is_active=True).order_by('name')
+
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        code = request.POST.get('code', '').strip()
+        hs_code = request.POST.get('hs_code', '').strip()
+        unit = request.POST.get('unit', 'Pcs').strip()
+        selling_price = Decimal(request.POST.get('selling_price') or '0.00')
+        selected_tax_ids = request.POST.getlist('taxes')
+
+        if not product:
+            product = Product(company=comp)
+
+        product.name = name
+        product.code = code
+        product.hs_code = hs_code
+        product.unit = unit
+        product.selling_price = selling_price
+        product.is_active = request.POST.get('is_active') == 'on'
+        product.save()
+
+        product.taxes.set(TaxConfiguration.objects.filter(id__in=selected_tax_ids, company=comp))
+        messages.success(request, f"Product '{product.name}' saved successfully.")
+        return redirect('product-list')
+
+    return render(request, 'accounting/product_form.html', {
+        'product': product,
+        'taxes': taxes
+    })
+
+
+# ==============================================================================
+# Fuzzy Multi-Part Search APIs
+# ==============================================================================
+
+@require_GET
+def product_search_api(request):
+    """Searches products across all partial words in any order."""
+    query = request.GET.get('q', '').strip()
+    words = query.split()
+
+    qs = Product.objects.filter(company=request.company, is_active=True)
+    for word in words:
+        qs = qs.filter(Q(name__icontains=word) | Q(code__icontains=word) | Q(hs_code__icontains=word))
+
+    results = []
+    for p in qs[:20]:
+        applicable_tax = p.taxes.filter(is_active=True).first()
+        results.append({
+            'id': p.id,
+            'name': p.name,
+            'hs_code': p.hs_code or '-',
+            'unit_price': float(p.selling_price),
+            'tax_rate': float(applicable_tax.rate) if applicable_tax else 0.0,
+            'tax_name': applicable_tax.name if applicable_tax else 'No Tax'
+        })
+    return JsonResponse({'status': 'success', 'results': results})
+
+
+@require_GET
+def customer_search_api(request):
+    """Searches customers across all partial words in any order."""
+    query = request.GET.get('q', '').strip()
+    words = query.split()
+
+    qs = Customer.objects.filter(company=request.company)
+    for word in words:
+        qs = qs.filter(Q(name__icontains=word) | Q(tax_number__icontains=word) | Q(phone__icontains=word))
+
+    results = []
+    for c in qs[:20]:
+        results.append({
+            'id': c.id,
+            'name': c.name,
+            'tax_number': c.tax_number or 'N/A',
+            'address': c.address or '',
+            'is_vat_exempt': c.is_vat_exempt
+        })
+    return JsonResponse({'status': 'success', 'results': results})
+
+
+# ==============================================================================
+# Refined Invoice Creation Engine (Auto-Tax & Configurable Discounts)
+# ==============================================================================
+
+def invoice_create_view(request):
+    comp = request.company
+
+    if request.method == 'POST':
+        customer_id = request.POST.get('customer_id')
+        date = request.POST.get('date')
+        due_date = request.POST.get('due_date') or None
+        notes = request.POST.get('notes', '')
+
+        # Discount parameters
+        percent_rate = Decimal(request.POST.get('percent_discount_rate') or '0.00')
+        value_discount = Decimal(request.POST.get('value_discount_amount') or '0.00')
+
+        # Line items
+        product_ids = request.POST.getlist('product_id[]')
+        descriptions = request.POST.getlist('description[]')
+        hs_codes = request.POST.getlist('hs_code[]')
+        quantities = request.POST.getlist('quantity[]')
+        unit_prices = request.POST.getlist('unit_price[]')
+        is_free_flags = request.POST.getlist('is_free[]')
+        promo_badges = request.POST.getlist('promo_badge[]')
+
+        gross_subtotal = Decimal('0.00')
+        free_discount_total = Decimal('0.00')
+        line_items = []
+        max_applied_tax_rate = Decimal('0.00')
+
+        customer = get_object_or_404(Customer, id=customer_id, company=comp)
+
+        for i in range(len(descriptions)):
+            desc = descriptions[i].strip()
+            qty = Decimal(quantities[i] or '0.00')
+            price = Decimal(unit_prices[i] or '0.00')
+            p_id = product_ids[i] if i < len(product_ids) and product_ids[i] else None
+            h_code = hs_codes[i] if i < len(hs_codes) else ''
+            is_free = (is_free_flags[i] == '1') if i < len(is_free_flags) else False
+            promo = promo_badges[i].strip() if i < len(promo_badges) else ''
+
+            if not desc or qty <= 0:
+                continue
+
+            line_amt = round(qty * price, 2)
+
+            if is_free:
+                # Value of free goods is calculated and added to the FREE discount line
+                free_discount_total += line_amt
+            else:
+                gross_subtotal += line_amt
+
+            # Check product's tagged tax rate
+            if p_id and not customer.is_vat_exempt:
+                p_obj = Product.objects.filter(id=p_id, company=comp).first()
+                if p_obj:
+                    for t in p_obj.taxes.filter(is_active=True):
+                        if t.rate > max_applied_tax_rate:
+                            max_applied_tax_rate = t.rate
+
+            line_items.append({
+                'product_id': p_id,
+                'description': desc,
+                'hs_code': h_code,
+                'quantity': qty,
+                'unit_price': price,
+                'amount': line_amt,
+                'is_free': is_free,
+                'promo_badge': promo
+            })
+
+        if not line_items:
+            messages.error(request, "Invoice must contain at least one line item.")
+            return redirect('invoice-create')
+
+        # Fallback to default VAT rate if customer is not exempt and no explicit product tax was assigned
+        if max_applied_tax_rate == Decimal('0.00') and not customer.is_vat_exempt:
+            default_tax = TaxConfiguration.objects.filter(company=comp, tax_type=TaxType.VAT, is_active=True).first()
+            if default_tax:
+                max_applied_tax_rate = default_tax.rate
+
+        # Calculate discounts
+        pct_discount_amt = round(gross_subtotal * (percent_rate / Decimal('100.00')), 2)
+        total_discount_calculated = pct_discount_amt + value_discount + free_discount_total
+
+        taxable_subtotal = max(Decimal('0.00'), gross_subtotal - (pct_discount_amt + value_discount))
+        tax_amount = round(taxable_subtotal * (max_applied_tax_rate / Decimal('100.00')), 2)
+        grand_total = taxable_subtotal + tax_amount
+
+        with transaction.atomic():
+            ym = timezone.now().strftime('%Y%m')
+            inv_count = Invoice.objects.filter(company=comp, invoice_number__startswith=f"INV-{ym}").count() + 1
+            invoice_number = f"INV-{ym}-{inv_count:04d}"
+
+            jv_count = Transaction.objects.filter(company=comp, voucher_number__startswith=f"JV-{ym}").count() + 1
+            jv_number = f"JV-{ym}-{jv_count:04d}"
+
+            txn = Transaction.objects.create(
+                company=comp,
+                date=date,
+                voucher_number=jv_number,
+                reference=invoice_number,
+                narration=f"Tax Invoice {invoice_number} issued to {customer.name}"
+            )
+
+            ar_acc = Account.objects.filter(company=comp, code='1030').first()
+            sales_acc = Account.objects.filter(company=comp, code='4010').first()
+            tax_acc = Account.objects.filter(company=comp, code='2020').first()
+
+            JournalEntry.objects.create(
+                transaction=txn,
+                account=ar_acc,
+                debit=grand_total,
+                credit=Decimal('0.00'),
+                line_description=f"Receivable from {customer.name}"
+            )
+            JournalEntry.objects.create(
+                transaction=txn,
+                account=sales_acc,
+                debit=Decimal('0.00'),
+                credit=taxable_subtotal,
+                line_description="Net sales income post-discount"
+            )
+            if tax_amount > Decimal('0.00') and tax_acc:
+                JournalEntry.objects.create(
+                    transaction=txn,
+                    account=tax_acc,
+                    debit=Decimal('0.00'),
+                    credit=tax_amount,
+                    line_description=f"Output VAT ({max_applied_tax_rate}%)"
+                )
+
+            inv = Invoice.objects.create(
+                company=comp,
+                invoice_number=invoice_number,
+                customer=customer,
+                date=date,
+                due_date=due_date,
+                gross_subtotal=gross_subtotal,
+                percent_discount_rate=percent_rate,
+                percent_discount_amount=pct_discount_amt,
+                value_discount_amount=value_discount,
+                free_discount_amount=free_discount_total,
+                total_discount=total_discount_calculated,
+                taxable_subtotal=taxable_subtotal,
+                tax_rate=max_applied_tax_rate,
+                tax_amount=tax_amount,
+                grand_total=grand_total,
+                notes=notes,
+                transaction=txn,
+                created_by=request.user
+            )
+
+            for itm in line_items:
+                InvoiceItem.objects.create(
+                    invoice=inv,
+                    product_id=itm['product_id'],
+                    description=itm['description'],
+                    hs_code=itm['hs_code'],
+                    quantity=itm['quantity'],
+                    unit_price=itm['unit_price'],
+                    amount=itm['amount'],
+                    is_free=itm['is_free'],
+                    promo_badge=itm['promo_badge']
+                )
+
+        messages.success(request, f"Invoice {invoice_number} created.")
+        return redirect('invoice-list')
+
+    return render(request, 'accounting/invoice_form.html')

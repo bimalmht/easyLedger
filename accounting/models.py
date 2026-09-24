@@ -1,36 +1,7 @@
+from decimal import Decimal
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.models import User
-
-# ==============================================================================
-# Audit Log Model (IRD Clause 6.c & 6.j Compliance)
-# ==============================================================================
-
-class AuditLog(models.Model):
-    ACTION_CHOICES = [
-        ('LOGIN', 'User Login'),
-        ('LOGOUT', 'User Logout'),
-        ('CREATE', 'Record Created'),
-        ('REPRINT', 'Invoice Reprinted'),
-        ('CANCEL', 'Invoice Cancelled'),
-        ('TRIGGER_BLOCK', 'Unauthorized DB Modification Blocked'),
-    ]
-
-    company = models.ForeignKey('Company', on_delete=models.CASCADE, related_name='audit_logs', null=True, blank=True)
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
-    username = models.CharField(max_length=150)
-    action = models.CharField(max_length=30, choices=ACTION_CHOICES)
-    table_name = models.CharField(max_length=100)
-    record_id = models.CharField(max_length=100, blank=True)
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
-    timestamp = models.DateTimeField(auto_now_add=True)
-    details = models.TextField(blank=True)
-
-    class Meta:
-        ordering = ['-timestamp']
-
-    def __str__(self):
-        return f"[{self.timestamp}] {self.username} - {self.action} on {self.table_name}"
 
 # ==============================================================================
 # 1. Company & User Profile (Row-Level Tenancy)
@@ -122,7 +93,64 @@ class JournalEntry(models.Model):
 
 
 # ==============================================================================
-# 3. Customer & Invoicing
+# 3. Tax Configuration (Fiscal Year / Policy Scoped)
+# ==============================================================================
+
+class TaxType(models.TextChoices):
+    VAT = "VAT", _("Value Added Tax (VAT)")
+    EXCISE = "EXCISE", _("Excise Duty")
+    TDS = "TDS", _("Tax Deducted at Source (TDS)")
+    OTHER = "OTHER", _("Other Indirect Tax")
+
+
+class TaxConfiguration(models.Model):
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="taxes")
+    name = models.CharField(max_length=100, help_text="e.g., VAT 13%, Excise Duty 5%, TDS 1.5%")
+    tax_type = models.CharField(max_length=20, choices=TaxType.choices, default=TaxType.VAT)
+    rate = models.DecimalField(max_digits=5, decimal_places=2, help_text="Percentage rate (e.g., 13.00)")
+    fiscal_year = models.CharField(max_length=20, default="2083/084", help_text="Applicable Nepalese Fiscal Year")
+    ledger_account = models.ForeignKey(
+        Account,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tax_configs",
+        help_text="Associated Liability or Asset Ledger"
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("company", "name", "fiscal_year")
+
+    def __str__(self):
+        return f"{self.name} ({self.rate}%) - {self.fiscal_year} [{self.company.name}]"
+
+
+# ==============================================================================
+# 4. Product Master
+# ==============================================================================
+
+class Product(models.Model):
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="products")
+    code = models.CharField(max_length=50, blank=True)
+    name = models.CharField(max_length=200, help_text="Full product title, e.g. Asian Paints Apex Ultima")
+    hs_code = models.CharField(max_length=50, blank=True, verbose_name="HS Code")
+    unit = models.CharField(max_length=20, default="Pcs")
+    selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    taxes = models.ManyToManyField(TaxConfiguration, blank=True, related_name="products")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("company", "name")
+
+    def __str__(self):
+        return f"{self.name} ({self.company.name})"
+
+
+# ==============================================================================
+# 5. Customer Master
 # ==============================================================================
 
 class Customer(models.Model):
@@ -130,13 +158,19 @@ class Customer(models.Model):
     name = models.CharField(max_length=150)
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=50, blank=True)
-    tax_number = models.CharField(max_length=50, blank=True, verbose_name="Tax / PAN ID")
+    tax_number = models.CharField(max_length=50, blank=True, verbose_name="PAN / VAT ID")
     address = models.TextField(blank=True)
+    is_vat_exempt = models.BooleanField(default=False, verbose_name="VAT Exempt Entity")
+    applicable_taxes = models.ManyToManyField(TaxConfiguration, blank=True, related_name="customers")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.name} ({self.company.name})"
 
+
+# ==============================================================================
+# 6. Sales Invoicing & Multi-Tier Discounts
+# ==============================================================================
 
 class Invoice(models.Model):
     STATUS_CHOICES = [
@@ -150,8 +184,17 @@ class Invoice(models.Model):
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="invoices")
     date = models.DateField()
     due_date = models.DateField(null=True, blank=True)
-    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00, help_text="Tax percentage (e.g. 13 for 13%)")
+
+    # Subtotals & Discounts
+    gross_subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, help_text="Sum of gross line amounts")
+    percent_discount_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    percent_discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    value_discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    free_discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, help_text="Total value of 100% free goods")
+    total_discount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+
+    taxable_subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     grand_total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="UNPAID")
@@ -163,13 +206,15 @@ class Invoice(models.Model):
         blank=True,
         related_name="invoice",
     )
-    created_at = models.DateTimeField(auto_now_add=True)
+
+    # IRD Audit & Immutability Fields
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_invoices', null=True, blank=True)
     print_count = models.PositiveIntegerField(default=0, verbose_name="Times Printed")
     is_cancelled = models.BooleanField(default=False)
     cancelled_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='cancelled_invoices', null=True, blank=True)
     cancellation_reason = models.TextField(blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ("company", "invoice_number")
@@ -180,17 +225,21 @@ class Invoice(models.Model):
 
 class InvoiceItem(models.Model):
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="invoice_items")
     description = models.CharField(max_length=255)
+    hs_code = models.CharField(max_length=50, blank=True)
     quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1.00)
     unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    is_free = models.BooleanField(default=False, help_text="Designates 100% free goods")
+    promo_badge = models.CharField(max_length=150, blank=True, help_text="e.g. 'Pilot Pen Free Promo'")
 
     def __str__(self):
         return f"{self.description} ({self.quantity} x {self.unit_price})"
 
 
 # ==============================================================================
-# 4. IRD Tax Invoice Templates
+# 7. IRD Tax Invoice Templates & Audit Logs
 # ==============================================================================
 
 class InvoiceTemplate(models.Model):
@@ -220,3 +269,30 @@ class InvoiceTemplate(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.get_page_size_display()}) - {self.company.name}"
+
+
+class AuditLog(models.Model):
+    ACTION_CHOICES = [
+        ('LOGIN', 'User Login'),
+        ('LOGOUT', 'User Logout'),
+        ('CREATE', 'Record Created'),
+        ('REPRINT', 'Invoice Reprinted'),
+        ('CANCEL', 'Invoice Cancelled'),
+        ('TRIGGER_BLOCK', 'Unauthorized DB Modification Blocked'),
+    ]
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='audit_logs', null=True, blank=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    username = models.CharField(max_length=150)
+    action = models.CharField(max_length=30, choices=ACTION_CHOICES)
+    table_name = models.CharField(max_length=100)
+    record_id = models.CharField(max_length=100, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    details = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"[{self.timestamp}] {self.username} - {self.action} on {self.table_name}"

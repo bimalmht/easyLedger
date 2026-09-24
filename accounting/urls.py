@@ -21,10 +21,20 @@ urlpatterns = [
     path('trial-balance/', views.trial_balance_view, name='trial-balance'),
     path('profit-and-loss/', views.profit_loss_view, name='profit-loss'),
     path('balance-sheet/', views.balance_sheet_view, name='balance-sheet'),
+    
+    # Masters (Tax & Products)
+    path('masters/taxes/', views.tax_list_view, name='tax-list'),
+    path('masters/taxes/new/', views.tax_create_edit_view, name='tax-create'),
+    path('masters/taxes/<int:tax_id>/edit/', views.tax_create_edit_view, name='tax-edit'),
+    path('masters/products/', views.product_list_view, name='product-list'),
+    path('masters/products/new/', views.product_create_edit_view, name='product-create'),
+    path('masters/products/<int:product_id>/edit/', views.product_create_edit_view, name='product-edit'),
 
     # APIs
     path('api/accounts/create/', views.account_quick_create_api, name='account-quick-create'),
     path('api/accounts/next-code/', views.get_next_code_api, name='account-next-code'),
     path('api/customers/create/', views.customer_quick_create_api, name='customer-quick-create'),
     path('audit-trail/', views.audit_trail_view, name='audit-trail'),
+    path('api/products/search/', views.product_search_api, name='product-search-api'),
+    path('api/customers/search/', views.customer_search_api, name='customer-search-api'),
 ]

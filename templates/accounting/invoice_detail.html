@@ -4,27 +4,22 @@
 
 {% block content %}
 <style>
-  /* 1. Page definition strictly zeroed out to prevent browser clipping */
   @page {
     size: A4 portrait;
     margin: 8mm 10mm;
   }
 
-  /* 2. On-screen presentation container */
   .print-sheet {
     width: 100%;
     max-width: 190mm;
-    min-height: 275mm;
     margin: 0 auto;
     background: #ffffff;
     box-sizing: border-box;
   }
 
-  /* 3. Strict Single-Page Print Rules */
   @media print {
     html, body {
       width: 100% !important;
-      height: 100% !important;
       margin: 0 !important;
       padding: 0 !important;
       background: #ffffff !important;
@@ -36,66 +31,26 @@
       display: none !important;
     }
 
-    main {
-      padding: 0 !important;
-      margin: 0 !important;
-      max-width: 100% !important;
-    }
-
     .print-sheet {
-      width: 100% !important;
-      max-width: 100% !important;
-      min-height: auto !important;
-      height: auto !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      box-shadow: none !important;
       border: 1.5px solid #000000 !important;
       page-break-inside: avoid !important;
-      page-break-after: avoid !important;
-      break-inside: avoid !important;
-    }
-
-    table {
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-    }
-
-    tr, td, th {
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
     }
   }
 </style>
 
 <div class="max-w-4xl mx-auto space-y-4">
-  <!-- Controls Bar (Hidden during Print) -->
-  <div class="screen-only flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-    <div class="flex items-center gap-3">
-      <a href="{% url 'invoice-list' %}" class="text-xs font-semibold text-slate-600 hover:text-indigo-600">&larr; Back to Invoices</a>
-      <span class="text-slate-300">|</span>
-      <form method="GET" class="flex items-center gap-2">
-        <label class="text-xs font-semibold text-slate-600">Template:</label>
-        <select name="template" onchange="this.form.submit()" class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white focus:outline-none">
-          {% for t in all_templates %}
-            <option value="{{ t.id }}" {% if t.id == template.id %}selected{% endif %}>{{ t.title }}</option>
-          {% endfor %}
-        </select>
-      </form>
-    </div>
-
-    <div class="flex items-center gap-2">
-      <button type="button" onclick="triggerIRDPrint()" class="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4H7v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
-        Print Invoice
-      </button>
-    </div>
+  <!-- Top Controls (Screen Only) -->
+  <div class="screen-only flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+    <a href="{% url 'invoice-list' %}" class="text-xs font-semibold text-slate-600 hover:text-indigo-600">&larr; Back to Invoices</a>
+    <button type="button" onclick="triggerIRDPrint()" class="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm">
+      Print IRD Tax Invoice
+    </button>
   </div>
 
-  <!-- Printable Invoice Canvas (Fitted to 1 Sheet) -->
+  <!-- Printable Invoice Document -->
   <div id="invoicePrintArea" class="print-sheet p-6 text-black border border-slate-400 shadow-md text-[12px] leading-tight flex flex-col justify-between">
     <div>
-      <!-- Top Meta Row -->
+      <!-- Top Meta & Title -->
       <div class="flex justify-between items-center text-[10px] border-b border-black pb-1 mb-2">
         <div>{{ template.header_subtitle }}</div>
         <div class="font-bold uppercase tracking-wider text-rose-600 text-[11px]">
@@ -103,9 +58,8 @@
         </div>
       </div>
 
-      <!-- Seller Header -->
       <div class="text-center space-y-0.5 mb-2">
-        <h1 class="text-lg font-black uppercase tracking-wide text-black leading-none">{{ company.name }}</h1>
+        <h1 class="text-lg font-black uppercase tracking-wide text-black">{{ company.name }}</h1>
         <p class="text-[11px] text-black">{{ company.address }}</p>
         <p class="text-[10px] text-black">Phone: {{ company.phone|default:"-" }} | Email: {{ company.email|default:"-" }}</p>
         <div class="inline-block border border-black px-2 py-0.5 mt-0.5 font-mono font-bold text-xs">
@@ -118,7 +72,7 @@
         </div>
       </div>
 
-      <!-- Buyer & Invoice Meta Information Box -->
+      <!-- Customer & Bill Meta Box -->
       <div class="grid grid-cols-2 gap-2 border border-black p-2 mb-2 text-[11px]">
         <div class="space-y-0.5">
           <div><strong>Buyer's Name (खरिदकर्ताको नाम):</strong> {{ invoice.customer.name }}</div>
@@ -132,14 +86,12 @@
         </div>
       </div>
 
-      <!-- Items Table -->
+      <!-- Line Items Table -->
       <table class="w-full border-collapse border border-black text-left text-[11px] mb-2">
         <thead>
           <tr class="border-b border-black bg-slate-100 font-bold">
             <th class="border border-black p-1 text-center w-8">S.N.</th>
-            {% if template.show_hs_code %}
-              <th class="border border-black p-1 w-20 text-center">HS Code</th>
-            {% endif %}
+            <th class="border border-black p-1 w-20 text-center">HS Code</th>
             <th class="border border-black p-1">Description of Goods / Services</th>
             <th class="border border-black p-1 text-right w-14">Qty</th>
             <th class="border border-black p-1 text-right w-20">Rate (Rs.)</th>
@@ -150,10 +102,16 @@
           {% for item in invoice.items.all %}
             <tr>
               <td class="border border-black p-1 text-center font-mono">{{ forloop.counter }}</td>
-              {% if template.show_hs_code %}
-                <td class="border border-black p-1 text-center font-mono text-[10px]">-</td>
-              {% endif %}
-              <td class="border border-black p-1 font-medium">{{ item.description }}</td>
+              <td class="border border-black p-1 text-center font-mono text-[10px]">{{ item.hs_code|default:"-" }}</td>
+              <td class="border border-black p-1 font-medium">
+                {{ item.description }}
+                {% if item.is_free %}
+                  <span class="ml-2 font-bold text-rose-600">[FREE ITEM]</span>
+                {% endif %}
+                {% if item.promo_badge %}
+                  <span class="ml-2 font-bold text-emerald-600">{{ item.promo_badge }}</span>
+                {% endif %}
+              </td>
               <td class="border border-black p-1 text-right font-mono">{{ item.quantity|floatformat:2 }}</td>
               <td class="border border-black p-1 text-right font-mono">{{ item.unit_price|floatformat:2 }}</td>
               <td class="border border-black p-1 text-right font-mono">{{ item.amount|floatformat:2 }}</td>
@@ -161,34 +119,47 @@
           {% endfor %}
         </tbody>
         <tfoot>
+          <!-- Matching Attached Screenshot Format Exactly -->
           <tr>
-            <td colspan="{% if template.show_hs_code %}4{% else %}3{% endif %}" rowspan="5" class="border border-black p-2 align-top text-[10px]">
+            <td colspan="3" rowspan="8" class="border border-black p-2 align-top text-[10px]">
               <div><strong>In Words (अक्षरेपी):</strong></div>
               <div class="italic font-medium capitalize mt-0.5">{{ amount_in_words }}</div>
               {% if template.terms_and_conditions %}
-                <div class="mt-2 pt-1 border-t border-slate-300">
+                <div class="mt-4 pt-2 border-t border-slate-300">
                   <strong>Terms & Conditions:</strong>
                   <p class="whitespace-pre-line text-slate-700 text-[9.5px] leading-tight">{{ template.terms_and_conditions }}</p>
                 </div>
               {% endif %}
             </td>
-            <td class="border border-black p-1 font-semibold text-right">Taxable Subtotal:</td>
-            <td class="border border-black p-1 font-mono text-right font-medium">{{ invoice.subtotal|floatformat:2 }}</td>
+            <td colspan="2" class="border border-black p-1 font-semibold text-right">Taxable Subtotal:</td>
+            <td class="border border-black p-1 font-mono text-right font-medium">{{ invoice.gross_subtotal|floatformat:2 }}</td>
           </tr>
           <tr>
-            <td class="border border-black p-1 font-semibold text-right">Discount:</td>
-            <td class="border border-black p-1 font-mono text-right">0.00</td>
+            <td colspan="2" class="border border-black p-1 font-semibold text-right">% Discount:</td>
+            <td class="border border-black p-1 font-mono text-right">{{ invoice.percent_discount_amount|floatformat:2 }}</td>
           </tr>
           <tr>
-            <td class="border border-black p-1 font-semibold text-right">Taxable Amount:</td>
-            <td class="border border-black p-1 font-mono text-right">{{ invoice.subtotal|floatformat:2 }}</td>
+            <td colspan="2" class="border border-black p-1 font-semibold text-right">Value Discount:</td>
+            <td class="border border-black p-1 font-mono text-right">{{ invoice.value_discount_amount|floatformat:2 }}</td>
           </tr>
           <tr>
-            <td class="border border-black p-1 font-semibold text-right">VAT ({{ invoice.tax_rate|floatformat:0 }}%):</td>
+            <td colspan="2" class="border border-black p-1 font-semibold text-right">FREE Discount:</td>
+            <td class="border border-black p-1 font-mono text-right">{{ invoice.free_discount_amount|floatformat:2 }}</td>
+          </tr>
+          <tr class="font-bold bg-slate-50">
+            <td colspan="2" class="border border-black p-1 text-right">Total Discount:</td>
+            <td class="border border-black p-1 font-mono text-right">{{ invoice.total_discount|floatformat:2 }}</td>
+          </tr>
+          <tr>
+            <td colspan="2" class="border border-black p-1 font-semibold text-right">Taxable Amount:</td>
+            <td class="border border-black p-1 font-mono text-right">{{ invoice.taxable_subtotal|floatformat:2 }}</td>
+          </tr>
+          <tr>
+            <td colspan="2" class="border border-black p-1 font-semibold text-right">VAT ({{ invoice.tax_rate|floatformat:0 }}%):</td>
             <td class="border border-black p-1 font-mono text-right font-medium">{{ invoice.tax_amount|floatformat:2 }}</td>
           </tr>
-          <tr class="bg-slate-50 font-bold">
-            <td class="border border-black p-1 text-right">Grand Total:</td>
+          <tr class="bg-slate-100 font-bold">
+            <td colspan="2" class="border border-black p-1 text-right">Grand Total:</td>
             <td class="border border-black p-1 font-mono text-right text-xs">Rs. {{ invoice.grand_total|floatformat:2 }}</td>
           </tr>
         </tfoot>
@@ -200,34 +171,20 @@
 
     <!-- Signatures & Audit Footprint -->
     <div class="mt-4 pt-2">
-      <!-- Signatures Block -->
       <div class="flex justify-between items-end text-center text-[11px] mb-4">
         <div>
-          <div class="font-semibold text-slate-900 pb-0.5">
-            {{ invoice.created_by.username|default:user.username }}
-          </div>
-          <div class="w-44 border-t border-dotted border-black pt-0.5">
-            Prepared / Received By
-          </div>
+          <div class="font-semibold text-slate-900 pb-0.5">{{ invoice.created_by.username|default:user.username }}</div>
+          <div class="w-44 border-t border-dotted border-black pt-0.5">Prepared / Received By</div>
         </div>
         <div>
-          <div class="w-48 border-t border-black pt-0.5 font-semibold">
-            {{ template.footer_signature_label }}
-          </div>
+          <div class="w-48 border-t border-black pt-0.5 font-semibold">{{ template.footer_signature_label }}</div>
         </div>
       </div>
 
-      <!-- IRD Mandatory Audit Trail Footer -->
-      <div class="border-t border-slate-300 pt-1 flex flex-wrap justify-between items-center text-[9.5px] text-slate-600 font-mono">
-        <div>
-          <strong>Created Date:</strong> {{ invoice.date|date:"Y-m-d" }}
-        </div>
-        <div>
-          <strong>Printed By:</strong> {{ user.username }}
-        </div>
-        <div>
-          <strong>Print Date & Time:</strong> {{ print_timestamp|date:"Y-m-d H:i:s" }}
-        </div>
+      <div class="border-t border-slate-300 pt-1 flex justify-between items-center text-[9.5px] text-slate-600 font-mono">
+        <div><strong>Created Date:</strong> {{ invoice.date|date:"Y-m-d" }}</div>
+        <div><strong>Printed By:</strong> {{ user.username }}</div>
+        <div><strong>Print Date & Time:</strong> {{ print_timestamp|date:"Y-m-d H:i:s" }}</div>
       </div>
     </div>
   </div>
@@ -236,7 +193,7 @@
 <script>
 function triggerIRDPrint() {
   fetch(window.location.pathname + '?print=true')
-    .then(response => response.json())
+    .then(r => r.json())
     .then(() => {
       window.print();
       window.location.reload();
