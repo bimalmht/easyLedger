@@ -357,3 +357,37 @@ class CreditNoteItem(models.Model):
 
     def __str__(self):
         return f"{self.description} ({self.quantity} x {self.unit_price})"
+    
+class CreditNoteTemplate(models.Model):
+    PAGE_SIZE_CHOICES = [
+        ("A4_PORTRAIT", "A4 Portrait (210mm x 297mm)"),
+        ("A4_LANDSCAPE", "A4 Landscape (297mm x 210mm)"),
+        ("A5_PORTRAIT", "A5 Portrait (148mm x 210mm)"),
+        ("A5_LANDSCAPE", "A5 Landscape (210mm x 148mm)"),
+    ]
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="credit_note_templates")
+    title = models.CharField(max_length=100, default="Standard Nepal IRD Schedule 6 Credit Note")
+    page_size = models.CharField(max_length=20, choices=PAGE_SIZE_CHOICES, default="A4_PORTRAIT")
+    is_default = models.BooleanField(default=False)
+    show_hs_code = models.BooleanField(default=True)
+    header_subtitle = models.CharField(
+        max_length=150, 
+        default="अनुसूची–६ (नियम १७ सँग सम्बन्धित) / Schedule 6 (Rule 17), VAT Rules 2053"
+    )
+    declaration_text = models.TextField(
+        default="We certify that this credit note reflects the actual return or price adjustment of goods/services described."
+    )
+    terms_and_conditions = models.TextField(
+        blank=True,
+        default="1. Credit adjustment subject to reconciliation.\n2. Applicable against subsequent invoices."
+    )
+    footer_signature_label = models.CharField(max_length=100, default="Authorized Signatory / अधिकृत हस्ताक्षर")
+
+    def save(self, *args, **kwargs):
+        if self.is_default:
+            CreditNoteTemplate.objects.filter(company=self.company).exclude(id=self.id).update(is_default=False)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.title} ({self.get_page_size_display()}) - {self.company.name}"

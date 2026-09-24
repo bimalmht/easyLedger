@@ -32,6 +32,7 @@ from .models import (
     Customer,
     CreditNote,
     CreditNoteItem,
+    CreditNoteTemplate,
 )
 
 # ==============================================================================
@@ -1200,13 +1201,28 @@ def credit_note_detail_view(request, credit_note_id):
         cn_title_nepali = "क्रेडिट नोट (प्रतिलिपि)"
         cn_title_english = "CREDIT NOTE (COPY)"
 
-    template = InvoiceTemplate.objects.filter(company=request.company, is_default=True).first() or \
-               InvoiceTemplate.objects.filter(company=request.company).first()
+    # Dynamic Template Selection (query param or default)
+    selected_template_id = request.GET.get('template')
+    all_templates = CreditNoteTemplate.objects.filter(company=request.company)
+
+    if selected_template_id:
+        template = all_templates.filter(id=selected_template_id).first()
+    else:
+        template = all_templates.filter(is_default=True).first() or all_templates.first()
+
+    # Fallback to an empty template structure if no row exists in DB
+    if not template:
+        template = CreditNoteTemplate.objects.create(
+            company=request.company,
+            is_default=True,
+            title="Default IRD Schedule 6 Credit Note"
+        )
 
     return render(request, 'accounting/credit_note_detail.html', {
         'cn': cn,
         'company': request.company,
         'template': template,
+        'all_templates': all_templates,
         'amount_in_words': number_to_words(cn.grand_total),
         'copy_text': copy_text,
         'cn_title_nepali': cn_title_nepali,
@@ -1236,4 +1252,43 @@ def invoice_items_api(request, invoice_id):
         'invoice_date': inv.date.strftime('%Y-%m-%d'),
         'tax_rate': float(inv.tax_rate),
         'items': items
+    })
+
+def credit_note_template_list_view(request):
+    templates = CreditNoteTemplate.objects.filter(company=request.company)
+    return render(request, 'accounting/credit_note_template_list.html', {'templates': templates})
+
+def credit_note_template_edit_view(request, template_id=None):
+    comp = request.company
+    template = get_object_or_404(CreditNoteTemplate, id=template_id, company=comp) if template_id else None
+
+    if request.method == 'POST':
+        title = request.POST.get('title', '').strip()
+        page_size = request.POST.get('page_size', 'A4_PORTRAIT')
+        header_subtitle = request.POST.get('header_subtitle', '').strip()
+        declaration_text = request.POST.get('declaration_text', '').strip()
+        terms_and_conditions = request.POST.get('terms_and_conditions', '').strip()
+        footer_signature_label = request.POST.get('footer_signature_label', '').strip()
+        show_hs_code = request.POST.get('show_hs_code') == 'on'
+        is_default = request.POST.get('is_default') == 'on'
+
+        if not template:
+            template = CreditNoteTemplate(company=comp)
+
+        template.title = title
+        template.page_size = page_size
+        template.header_subtitle = header_subtitle
+        template.declaration_text = declaration_text
+        template.terms_and_conditions = terms_and_conditions
+        template.footer_signature_label = footer_signature_label
+        template.show_hs_code = show_hs_code
+        template.is_default = is_default
+        template.save()
+
+        messages.success(request, f"Credit Note Template '{template.title}' saved.")
+        return redirect('credit-note-template-list')
+
+    return render(request, 'accounting/credit_note_template_form.html', {
+        'template': template,
+        'page_sizes': CreditNoteTemplate.PAGE_SIZE_CHOICES
     })

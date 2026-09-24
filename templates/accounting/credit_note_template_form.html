@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if template %}Edit{% else %}Create{% endif %} Credit Note Template - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+  <div class="pb-3 mb-4 border-b border-slate-200 flex justify-between items-center">
+    <div>
+      <h1 class="text-lg font-bold text-slate-900">
+        {% if template %}Edit Credit Note Template{% else %}New Credit Note Template{% endif %}
+      </h1>
+      <p class="text-xs text-slate-500">Configure page layout and Nepal IRD Schedule 6 compliance labels.</p>
+    </div>
+    <a href="{% url 'credit-note-template-list' %}" class="text-xs font-semibold text-slate-600 hover:text-indigo-600">&larr; Back to List</a>
+  </div>
+
+  <form method="POST" class="space-y-4 text-xs">
+    {% csrf_token %}
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <label class="block font-semibold text-slate-700 mb-1">Template Title</label>
+        <input type="text" name="title" value="{{ template.title|default:'Standard IRD Schedule 6 Credit Note' }}" required class="w-full border border-slate-300 rounded-lg p-2.5">
+      </div>
+
+      <div>
+        <label class="block font-semibold text-slate-700 mb-1">Page Format</label>
+        <select name="page_size" class="w-full border border-slate-300 rounded-lg p-2.5 bg-white">
+          {% for code, label in page_sizes %}
+            <option value="{{ code }}" {% if template.page_size == code %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <label class="block font-semibold text-slate-700 mb-1">Header Subtitle (Mandatory IRD Reference)</label>
+      <input type="text" name="header_subtitle" value="{{ template.header_subtitle|default:'अनुसूची–६ (नियम १७ सँग सम्बन्धित) / Schedule 6 (Rule 17), VAT Rules 2053' }}" required class="w-full border border-slate-300 rounded-lg p-2.5">
+    </div>
+
+    <div>
+      <label class="block font-semibold text-slate-700 mb-1">Declaration Statement</label>
+      <textarea name="declaration_text" rows="2" class="w-full border border-slate-300 rounded-lg p-2.5">{{ template.declaration_text|default:'We certify that this credit note reflects the actual return or price adjustment of goods/services described.' }}</textarea>
+    </div>
+
+    <div>
+      <label class="block font-semibold text-slate-700 mb-1">Terms & Conditions / Policy Remarks</label>
+      <textarea name="terms_and_conditions" rows="3" class="w-full border border-slate-300 rounded-lg p-2.5">{{ template.terms_and_conditions|default:'1. Credit adjustment subject to reconciliation.&#10;2. Applicable against subsequent invoices.' }}</textarea>
+    </div>
+
+    <div>
+      <label class="block font-semibold text-slate-700 mb-1">Footer Signature Label</label>
+      <input type="text" name="footer_signature_label" value="{{ template.footer_signature_label|default:'Authorized Signatory / अधिकृत हस्ताक्षर' }}" required class="w-full border border-slate-300 rounded-lg p-2.5">
+    </div>
+
+    <div class="space-y-2 pt-2 border-t border-slate-100">
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="show_hs_code" {% if template is None or template.show_hs_code %}checked{% endif %} class="rounded text-indigo-600">
+        <span class="font-medium text-slate-700">Display Harmonized System (HS) Code Column</span>
+      </label>
+
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="is_default" {% if template.is_default %}checked{% endif %} class="rounded text-indigo-600">
+        <span class="font-medium text-slate-700">Set as Company Default Template</span>
+      </label>
+    </div>
+
+    <div class="flex justify-end gap-2 pt-4 border-t border-slate-200">
+      <a href="{% url 'credit-note-template-list' %}" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</a>
+      <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm">
+        Save Template
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

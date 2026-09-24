@@ -11,6 +11,7 @@ from .models import (
     Invoice,
     InvoiceItem,
     InvoiceTemplate,
+    CreditNoteTemplate,
 )
 from .views import seed_company_default_accounts
 
@@ -47,6 +48,17 @@ class CompanyAdmin(admin.ModelAdmin):
         # Automatically seed standard Chart of Accounts & IRD template on first creation
         if not change:
             seed_company_default_accounts(obj)
+            InvoiceTemplate.objects.get_or_create(
+                company=obj,
+                is_default=True,
+                defaults={'title': 'Standard IRD Tax Invoice'}
+            )
+            # Seed Credit Note template if not present
+            CreditNoteTemplate.objects.get_or_create(
+                company=obj,
+                is_default=True,
+                defaults={'title': 'Standard IRD Schedule 6 Credit Note'}
+            )
 
 
 # Operational Model Admins (Viewable by Superuser)

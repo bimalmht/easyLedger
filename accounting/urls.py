@@ -27,6 +27,9 @@ urlpatterns = [
     path('credit-notes/new/', views.credit_note_create_view, name='credit-note-create'),
     path('credit-notes/<int:credit_note_id>/', views.credit_note_detail_view, name='credit-note-detail'),
     path('api/invoices/<int:invoice_id>/items/', views.invoice_items_api, name='invoice-items-api'),
+    path('templates/credit-notes/', views.credit_note_template_list_view, name='credit-note-template-list'),
+    path('templates/credit-notes/new/', views.credit_note_template_edit_view, name='credit-note-template-create'),
+    path('templates/credit-notes/<int:template_id>/edit/', views.credit_note_template_edit_view, name='credit-note-template-edit'),
     
     # Masters (Tax & Products)
     path('masters/taxes/', views.tax_list_view, name='tax-list'),

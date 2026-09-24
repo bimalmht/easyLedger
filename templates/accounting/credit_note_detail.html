@@ -39,11 +39,30 @@
 </style>
 
 <div class="max-w-4xl mx-auto space-y-4">
-  <div class="screen-only flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-    <a href="{% url 'credit-note-list' %}" class="text-xs font-semibold text-slate-600 hover:text-indigo-600">&larr; Back to Credit Notes</a>
-    <button type="button" onclick="triggerCNPrint()" class="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm">
-      Print Schedule 6 Credit Note
-    </button>
+  <div class="screen-only flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+    <div class="flex items-center gap-3">
+      <a href="{% url 'credit-note-list' %}" class="text-xs font-semibold text-slate-600 hover:text-indigo-600">&larr; Back to Credit Notes</a>
+      <span class="text-slate-300">|</span>
+      <form method="GET" class="flex items-center gap-2">
+        <label class="text-xs font-semibold text-slate-600">Template / Size:</label>
+        <select name="template" onchange="this.form.submit()" class="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none">
+          {% for t in all_templates %}
+            <option value="{{ t.id }}" {% if t.id == template.id %}selected{% endif %}>
+              {{ t.title }} ({{ t.get_page_size_display }})
+            </option>
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <a href="{% url 'credit-note-template-list' %}" class="px-3.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">
+        Customize Templates
+      </a>
+      <button type="button" onclick="triggerCNPrint()" class="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm">
+        Print Schedule 6 Credit Note
+      </button>
+    </div>
   </div>
 
   <div id="cnPrintArea" class="print-sheet p-6 text-black border border-slate-400 shadow-md text-[12px] leading-tight flex flex-col justify-between">
