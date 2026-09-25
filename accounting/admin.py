@@ -12,6 +12,7 @@ from .models import (
     InvoiceItem,
     InvoiceTemplate,
     CreditNoteTemplate,
+    CompanySetting
 )
 from .views import seed_company_default_accounts
 
@@ -44,6 +45,7 @@ class CompanyAdmin(admin.ModelAdmin):
     search_fields = ("name", "pan_number")
 
     def save_model(self, request, obj, form, change):
+        CompanySetting.objects.get_or_create(company=obj)
         super().save_model(request, obj, form, change)
         # Automatically seed standard Chart of Accounts & IRD template on first creation
         if not change:

@@ -162,6 +162,7 @@ class Customer(models.Model):
     address = models.TextField(blank=True)
     is_vat_exempt = models.BooleanField(default=False, verbose_name="VAT Exempt Entity")
     applicable_taxes = models.ManyToManyField(TaxConfiguration, blank=True, related_name="customers")
+    is_active = models.BooleanField(default=True, verbose_name="Active Status")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -225,14 +226,14 @@ class Invoice(models.Model):
 
 class InvoiceItem(models.Model):
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="items")
-    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="invoice_items")
-    description = models.CharField(max_length=255)
-    hs_code = models.CharField(max_length=50, blank=True)
-    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1.00)
-    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    is_free = models.BooleanField(default=False, help_text="Designates 100% free goods")
-    promo_badge = models.CharField(max_length=150, blank=True, help_text="e.g. 'Pilot Pen Free Promo'")
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, null=True, blank=True)
+    description = models.CharField(max_length=200)
+    hs_code = models.CharField(max_length=20, blank=True, default="-")
+    quantity = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("1.00"))
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    is_free = models.BooleanField(default=False)
+    promo_badge = models.CharField(max_length=100, blank=True)
 
     def __str__(self):
         return f"{self.description} ({self.quantity} x {self.unit_price})"
@@ -348,12 +349,12 @@ class CreditNote(models.Model):
 
 class CreditNoteItem(models.Model):
     credit_note = models.ForeignKey(CreditNote, on_delete=models.CASCADE, related_name="items")
-    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True)
-    description = models.CharField(max_length=255)
-    hs_code = models.CharField(max_length=50, blank=True)
-    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1.00)
-    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, null=True, blank=True)
+    description = models.CharField(max_length=200)
+    hs_code = models.CharField(max_length=20, blank=True, default="-")
+    quantity = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("1.00"))
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
     def __str__(self):
         return f"{self.description} ({self.quantity} x {self.unit_price})"
@@ -391,3 +392,29 @@ class CreditNoteTemplate(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.get_page_size_display()}) - {self.company.name}"
+    
+# ==============================================================================
+# 9. Company System Configuration & Feature Flags
+# ==============================================================================
+
+class CompanySetting(models.Model):
+    company = models.OneToOneField(Company, on_delete=models.CASCADE, related_name="settings")
+    
+    # Feature Flags: Sales Invoicing Discounts
+    enable_percent_discount = models.BooleanField(default=True, verbose_name="Enable % Discount")
+    enable_value_discount = models.BooleanField(default=True, verbose_name="Enable Value Discount")
+    enable_free_item_discount = models.BooleanField(default=True, verbose_name="Enable Free Item (100% Free) Option")
+    enable_promotions = models.BooleanField(default=True, verbose_name="Enable Promotional Badges")
+
+    # Feature Flags: Master Creation Workflow
+    allow_quick_customer_creation = models.BooleanField(
+        default=True, 
+        verbose_name="Allow creating Customers directly during Invoicing"
+    )
+    allow_quick_product_creation = models.BooleanField(
+        default=True, 
+        verbose_name="Allow creating Products directly during Invoicing"
+    )
+
+    def __str__(self):
+        return f"Settings - {self.company.name}"

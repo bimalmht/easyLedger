@@ -10,10 +10,6 @@
       <p class="text-sm text-slate-500">Record debit and credit transactions across active ledgers.</p>
     </div>
     <div class="flex items-center gap-3">
-      <button type="button" onclick="openAccountModal()" class="px-3.5 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        New Account Master
-      </button>
       <div class="sm:text-right sm:border-l sm:border-slate-200 sm:pl-4">
         <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Voucher No</span>
         <div class="text-base font-mono font-semibold text-slate-700">AUTO-GEN</div>
@@ -21,33 +17,36 @@
     </div>
   </div>
 
-  <form id="voucherForm" method="POST" action="{% url 'voucher-create' %}">
+  <form id="voucherForm" method="POST" action="{% url 'voucher-create' %}" onsubmit="return validateVoucherBeforeSubmit(event)">
     {% csrf_token %}
-    
+
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
       <div>
         <label class="block text-xs font-semibold text-slate-600 mb-1">Date</label>
-        <input type="date" name="date" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+        <input type="date" name="date" value="{% now 'Y-m-d' %}" required
+          class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
       </div>
       <div>
         <label class="block text-xs font-semibold text-slate-600 mb-1">Reference No.</label>
-        <input type="text" name="reference" placeholder="e.g. Bank Ref / Cheque No" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+        <input type="text" name="reference" placeholder="e.g. Voucher Ref / Inv. No"
+          class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
       </div>
       <div>
         <label class="block text-xs font-semibold text-slate-600 mb-1">Narration / Note</label>
-        <input type="text" name="narration" placeholder="General voucher description" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+        <input type="text" name="narration" placeholder="General voucher description" required
+          class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
       </div>
     </div>
 
     <!-- Line Items Table -->
-    <div class="overflow-x-auto mb-6 rounded-lg border border-slate-200">
-      <table class="w-full min-w-[700px] text-left text-sm border-collapse">
+    <div class="overflow-visible mb-6 rounded-lg border border-slate-200">
+      <table class="w-full min-w-[700px] text-left text-sm border-collapse" id="voucherTable">
         <thead>
           <tr class="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase bg-slate-50">
-            <th class="py-3 px-4 w-1/3">Account</th>
+            <th class="py-3 px-4 w-2/5">Account (Click to browse or search)</th>
             <th class="py-3 px-4 w-1/3">Description</th>
-            <th class="py-3 px-4 w-44 text-right">Debit</th>
-            <th class="py-3 px-4 w-44 text-right">Credit</th>
+            <th class="py-3 px-4 w-36 text-right">Debit</th>
+            <th class="py-3 px-4 w-36 text-right">Credit</th>
             <th class="py-3 px-3 w-12 text-center"></th>
           </tr>
         </thead>
@@ -56,20 +55,25 @@
     </div>
 
     <!-- Footer Controls -->
-    <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 pt-4 border-t border-slate-200">
-      <button type="button" onclick="addRow()" class="inline-flex items-center justify-center px-4 py-2 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors">
+    <div
+      class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 pt-4 border-t border-slate-200">
+      <button type="button" onclick="addRow()"
+        class="inline-flex items-center justify-center px-4 py-2 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors">
         + Add Account Line
       </button>
 
       <div class="flex flex-wrap items-center justify-end gap-4 sm:gap-6">
         <div class="text-right">
-          <div class="text-xs text-slate-500 font-medium">Total Debit: <span id="totalDebit" class="font-mono font-bold text-slate-900">0.00</span></div>
-          <div class="text-xs text-slate-500 font-medium">Total Credit: <span id="totalCredit" class="font-mono font-bold text-slate-900">0.00</span></div>
+          <div class="text-xs text-slate-500 font-medium">Total Debit: <span id="totalDebit"
+              class="font-mono font-bold text-slate-900">0.00</span></div>
+          <div class="text-xs text-slate-500 font-medium">Total Credit: <span id="totalCredit"
+              class="font-mono font-bold text-slate-900">0.00</span></div>
         </div>
         <div id="balanceBadge" class="px-3 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">
           Unbalanced
         </div>
-        <button type="submit" id="saveBtn" disabled class="opacity-50 cursor-not-allowed px-6 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow transition-colors">
+        <button type="submit" id="saveBtn" disabled
+          class="opacity-50 cursor-not-allowed px-6 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow transition-colors">
           Post Voucher
         </button>
       </div>
@@ -77,23 +81,24 @@
   </form>
 </div>
 
-<!-- Modal: New Account Master -->
-<div id="accountModal" class="hidden fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+<!-- Modal: Quick Create Account Master (Outside voucher form) -->
+<div id="accountModal"
+  class="hidden fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
   <div class="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full p-6">
     <div class="flex justify-between items-center pb-3 border-b border-slate-100 mb-4">
-      <h3 class="text-lg font-bold text-slate-900">Quick Create Account</h3>
-      <button type="button" onclick="closeAccountModal()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+      <h3 class="text-lg font-bold text-slate-900">Add New Account Ledger to Master</h3>
+      <button type="button" onclick="closeAccountModal()"
+        class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
     </div>
 
-    <div id="modalAlert" class="hidden mb-3 p-2.5 text-xs rounded-lg font-medium"></div>
-
-    <form id="quickAccountForm" data-create-url="{% url 'account-quick-create' %}" onsubmit="event.preventDefault(); submitAccountMaster();">
+    <form id="quickAccountForm" onsubmit="event.preventDefault(); submitAccountMaster();">
       <div class="space-y-3.5">
         <div>
           <label class="block text-xs font-semibold text-slate-600 mb-1">Account Category</label>
-          <select id="m_type" data-next-code-url="{% url 'account-next-code' %}" required onchange="fetchNextCode()" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
+          <select id="m_type" required onchange="fetchNextCode()"
+            class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
             {% for code, label in account_types %}
-              <option value="{{ code }}">{{ label }}</option>
+            <option value="{{ code }}">{{ label }}</option>
             {% endfor %}
           </select>
         </div>
@@ -103,21 +108,25 @@
             <label class="block text-xs font-semibold text-slate-600">Account Code</label>
             <span class="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-medium">Auto-generated</span>
           </div>
-          <input type="text" id="m_code" readonly placeholder="Generating..." class="w-full text-sm font-mono bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-700 cursor-not-allowed focus:outline-none">
+          <input type="text" id="m_code" readonly placeholder="Generating..."
+            class="w-full text-sm font-mono bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-700 cursor-not-allowed focus:outline-none">
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-600 mb-1">Account Name</label>
-          <input type="text" id="m_name" required placeholder="e.g. Petty Cash, Office Supplies" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Account Name *</label>
+          <input type="text" id="m_name" required placeholder="e.g. Petty Cash, Office Supplies"
+            class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
         </div>
       </div>
 
       <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
-        <button type="button" onclick="closeAccountModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+        <button type="button" onclick="closeAccountModal()"
+          class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
           Cancel
         </button>
-        <button type="submit" id="modalSaveBtn" class="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow transition-colors">
-          Save & Add
+        <button type="submit" id="modalSaveBtn"
+          class="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow transition-colors">
+          Save to Master & Use
         </button>
       </div>
     </form>
@@ -126,5 +135,342 @@
 {% endblock %}
 
 {% block scripts %}
-{{ accounts_data|json_script:"accounts-data" }}
+<script>
+  let targetRowForNewAccount = null;
+
+  // -----------------------------------------------------------------------------
+  // Line Items Row Handling
+  // -----------------------------------------------------------------------------
+  function addRow() {
+    const tbody = document.getElementById('entryRows');
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-slate-50/50 transition-colors border-b border-slate-100';
+
+    tr.innerHTML = `
+      <td class="py-2.5 px-4 relative overflow-visible">
+        <input type="text" placeholder="Click to choose or type..." autocomplete="off"
+          class="accountSearch w-full text-sm border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
+        <input type="hidden" name="account[]" class="accountId">
+        <p class="accountError hidden text-[11px] text-rose-600 font-semibold mt-1 leading-tight"></p>
+        <div class="accountDropdown hidden absolute left-4 right-4 mt-1 bg-white border border-slate-300 rounded-lg shadow-2xl z-50 max-h-56 overflow-y-auto"></div>
+      </td>
+      <td class="py-2.5 px-4">
+        <input type="text" name="line_description[]" placeholder="Line description (optional)" class="w-full text-sm border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+      </td>
+      <td class="py-2.5 px-4 text-right">
+        <input type="number" step="0.01" min="0" name="debit[]" value="0.00" oninput="handleDebitChange(this)" class="debitInput w-full text-sm font-mono border border-slate-300 rounded-lg px-2.5 py-1.5 text-right focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+      </td>
+      <td class="py-2.5 px-4 text-right">
+        <input type="number" step="0.01" min="0" name="credit[]" value="0.00" oninput="handleCreditChange(this)" class="creditInput w-full text-sm font-mono border border-slate-300 rounded-lg px-2.5 py-1.5 text-right focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+      </td>
+      <td class="py-2.5 px-3 text-center">
+        <button type="button" onclick="removeRow(this)" class="text-slate-400 hover:text-rose-600 font-bold text-lg leading-none transition-colors">&times;</button>
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+    bindAccountSearch(tr);
+    updateTotals();
+  }
+
+  function removeRow(btn) {
+    const rows = document.querySelectorAll('#entryRows tr');
+    if (rows.length > 2) {
+      btn.closest('tr').remove();
+      updateTotals();
+    } else {
+      alert("A voucher requires at least two account entries.");
+    }
+  }
+
+  function handleDebitChange(input) {
+    const row = input.closest('tr');
+    const credit = row.querySelector('.creditInput');
+    if (parseFloat(input.value) > 0) {
+      credit.value = "0.00";
+    }
+    updateTotals();
+  }
+
+  function handleCreditChange(input) {
+    const row = input.closest('tr');
+    const debit = row.querySelector('.debitInput');
+    if (parseFloat(input.value) > 0) {
+      debit.value = "0.00";
+    }
+    updateTotals();
+  }
+
+  function updateTotals() {
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    document.querySelectorAll('#entryRows tr').forEach(row => {
+      const d = parseFloat(row.querySelector('.debitInput').value) || 0;
+      const c = parseFloat(row.querySelector('.creditInput').value) || 0;
+      totalDebit += d;
+      totalCredit += c;
+    });
+
+    document.getElementById('totalDebit').textContent = totalDebit.toFixed(2);
+    document.getElementById('totalCredit').textContent = totalCredit.toFixed(2);
+
+    const badge = document.getElementById('balanceBadge');
+    const saveBtn = document.getElementById('saveBtn');
+    const isBalanced = (totalDebit > 0) && (totalDebit.toFixed(2) === totalCredit.toFixed(2));
+
+    if (isBalanced) {
+      badge.textContent = "Balanced";
+      badge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800";
+      saveBtn.disabled = false;
+      saveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+      badge.textContent = "Unbalanced";
+      badge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800";
+      saveBtn.disabled = true;
+      saveBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+  }
+
+  // -----------------------------------------------------------------------------
+  // Standardized Search, Blur & Master Validation
+  // -----------------------------------------------------------------------------
+  function bindAccountSearch(tr) {
+    const aInput = tr.querySelector('.accountSearch');
+    const aDropdown = tr.querySelector('.accountDropdown');
+    const aId = tr.querySelector('.accountId');
+    const aErr = tr.querySelector('.accountError');
+
+    function fetchAndRenderAccounts(q = '') {
+      fetch(`/api/accounts/search/?q=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then(data => {
+          aDropdown.innerHTML = '';
+          let hasExactMatch = false;
+
+          if (data.results && data.results.length > 0) {
+            data.results.forEach(acc => {
+              if (acc.name.trim().toLowerCase() === q.trim().toLowerCase() || acc.code === q.trim()) {
+                hasExactMatch = true;
+              }
+              const itemDiv = document.createElement('div');
+              itemDiv.className = 'p-2.5 hover:bg-slate-100 cursor-pointer border-b border-slate-100 text-xs transition-colors flex items-center justify-between';
+              itemDiv.innerHTML = `
+                <div>
+                  <span class="font-bold text-slate-800 font-mono">${acc.code}</span>
+                  <span class="text-slate-700 ml-1.5">${acc.name}</span>
+                </div>
+                <span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">${acc.type}</span>
+              `;
+              itemDiv.onmousedown = () => {
+                applyAccountToRow(acc, tr);
+                aDropdown.classList.add('hidden');
+              };
+              aDropdown.appendChild(itemDiv);
+            });
+          }
+
+          if (q && !hasExactMatch) {
+            const createDiv = document.createElement('div');
+            createDiv.className = 'p-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold cursor-pointer text-xs border-t border-indigo-200 flex items-center justify-between';
+            createDiv.innerHTML = `<span>+ Create new account "<strong>${q}</strong>" in Master</span><span class="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-sans">Quick Add</span>`;
+            createDiv.onmousedown = () => {
+              aDropdown.classList.add('hidden');
+              openAccountModal(q, tr);
+            };
+            aDropdown.appendChild(createDiv);
+          } else if (!data.results || data.results.length === 0) {
+            aDropdown.innerHTML = '<div class="p-3 text-slate-400 text-xs">No accounts found</div>';
+          }
+
+          aDropdown.classList.remove('hidden');
+        });
+    }
+
+    aInput.addEventListener('focus', function() {
+      fetchAndRenderAccounts(this.value.trim());
+    });
+
+    aInput.addEventListener('input', function() {
+      const val = this.value.trim();
+      if (val !== (this.dataset.confirmedName || '')) {
+        aId.value = '';
+      }
+      fetchAndRenderAccounts(val);
+    });
+
+    aInput.addEventListener('blur', function() {
+      setTimeout(() => {
+        aDropdown.classList.add('hidden');
+        const val = this.value.trim();
+        if (val && (!aId.value || val !== (this.dataset.confirmedName || ''))) {
+          this.classList.add('border-rose-500', 'bg-rose-50');
+          aErr.innerText = "Account not registered in Master. Select from list or create new.";
+          aErr.classList.remove('hidden');
+        } else {
+          this.classList.remove('border-rose-500', 'bg-rose-50');
+          aErr.classList.add('hidden');
+        }
+      }, 200);
+    });
+  }
+
+  function applyAccountToRow(acc, tr) {
+    const aInput = tr.querySelector('.accountSearch');
+    const aId = tr.querySelector('.accountId');
+    const aErr = tr.querySelector('.accountError');
+
+    const formatted = `${acc.code} - ${acc.name}`;
+    aInput.value = formatted;
+    aInput.dataset.confirmedName = formatted;
+    aId.value = acc.id;
+
+    aInput.classList.remove('border-rose-500', 'bg-rose-50');
+    if (aErr) aErr.classList.add('hidden');
+  }
+
+  // Close dropdowns when clicking outside
+  document.addEventListener('click', function(e) {
+    document.querySelectorAll('#entryRows tr').forEach(tr => {
+      if (!tr.contains(e.target)) {
+        const dd = tr.querySelector('.accountDropdown');
+        if (dd) dd.classList.add('hidden');
+      }
+    });
+  });
+
+  // -----------------------------------------------------------------------------
+  // Quick Account Modal & Automatic Code Generation
+  // -----------------------------------------------------------------------------
+  function openAccountModal(prefillName = '', trElement = null) {
+    targetRowForNewAccount = trElement;
+    document.getElementById('m_name').value = prefillName;
+    document.getElementById('accountModal').classList.remove('hidden');
+    fetchNextCode();
+    if (prefillName) {
+      document.getElementById('m_type').focus();
+    } else {
+      document.getElementById('m_name').focus();
+    }
+  }
+
+  function closeAccountModal() {
+    document.getElementById('accountModal').classList.add('hidden');
+    document.getElementById('quickAccountForm').reset();
+    targetRowForNewAccount = null;
+  }
+
+  function fetchNextCode() {
+    const cat = document.getElementById('m_type').value;
+    const codeInput = document.getElementById('m_code');
+    codeInput.value = "Generating...";
+
+    fetch(`/api/accounts/next-code/?category=${encodeURIComponent(cat)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'success') {
+          codeInput.value = data.next_code;
+        } else {
+          codeInput.value = "1010";
+        }
+      })
+      .catch(() => {
+        codeInput.value = "1010";
+      });
+  }
+
+  function submitAccountMaster() {
+    const btn = document.getElementById('modalSaveBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    const formData = new FormData();
+    formData.append('account_type', document.getElementById('m_type').value);
+    formData.append('code', document.getElementById('m_code').value);
+    formData.append('name', document.getElementById('m_name').value.trim());
+
+    fetch('{% url "quick-create-account" %}', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+      body: formData
+    })
+      .then(r => r.json())
+      .then(res => {
+        btn.disabled = false;
+        btn.textContent = 'Save to Master & Use';
+
+        if (res.status === 'success') {
+          const acc = res.account;
+          let targetRow = targetRowForNewAccount;
+
+          if (!targetRow) {
+            const rows = document.querySelectorAll('#entryRows tr');
+            for (let r of rows) {
+              if (!r.querySelector('.accountId').value) {
+                targetRow = r;
+                break;
+              }
+            }
+            if (!targetRow) {
+              addRow();
+              const allRows = document.querySelectorAll('#entryRows tr');
+              targetRow = allRows[allRows.length - 1];
+            }
+          }
+
+          applyAccountToRow(acc, targetRow);
+          closeAccountModal();
+        } else {
+          alert(res.message);
+        }
+      })
+      .catch(err => {
+        btn.disabled = false;
+        btn.textContent = 'Save to Master & Use';
+        alert("Failed to communicate with server: " + err);
+      });
+  }
+
+  // -----------------------------------------------------------------------------
+  // Form Submission Validation
+  // -----------------------------------------------------------------------------
+  function validateVoucherBeforeSubmit(e) {
+    const rows = document.querySelectorAll('#entryRows tr');
+    let validCount = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const aInput = row.querySelector('.accountSearch');
+      const aId = row.querySelector('.accountId');
+      const aErr = row.querySelector('.accountError');
+      const val = aInput.value.trim();
+
+      if (val) {
+        if (!aId.value || val !== (aInput.dataset.confirmedName || '')) {
+          e.preventDefault();
+          aInput.classList.add('border-rose-500', 'bg-rose-50');
+          aErr.innerText = "Account not registered in Master. Select from list or create new.";
+          aErr.classList.remove('hidden');
+          aInput.focus();
+          return false;
+        }
+        validCount++;
+      }
+    }
+
+    if (validCount < 2) {
+      e.preventDefault();
+      alert("A voucher requires at least two valid accounts selected from the Master.");
+      return false;
+    }
+
+    return true;
+  }
+
+  // Starter lines on initial page load
+  document.addEventListener('DOMContentLoaded', () => {
+    addRow();
+    addRow();
+  });
+</script>
 {% endblock %}

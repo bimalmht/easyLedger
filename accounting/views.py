@@ -5,17 +5,12 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.db import transaction
 from django.contrib import messages
 from django.utils import timezone
-from django.db.models import Sum
+from django.db.models import Sum, Q, ProtectedError
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 from django.contrib.auth import login, logout
 from django.contrib.auth.forms import AuthenticationForm
-from django.contrib.auth.decorators import user_passes_test
-from django.contrib.auth.models import User
-from django.utils import timezone
-from django.db.models import Q
-
-from .models import (
+from .models import (    
     AuditLog,
     Company,
     UserProfile,
@@ -23,7 +18,6 @@ from .models import (
     Transaction,
     JournalEntry,
     AccountType,
-    Customer,
     Invoice,
     InvoiceItem,
     InvoiceTemplate,
@@ -33,6 +27,8 @@ from .models import (
     CreditNote,
     CreditNoteItem,
     CreditNoteTemplate,
+    CompanySetting,
+    TaxType,
 )
 
 # ==============================================================================
@@ -48,15 +44,25 @@ CATEGORY_PREFIX_MAP = {
 }
 
 def get_next_account_code(company, account_type):
-    base_prefix = CATEGORY_PREFIX_MAP.get(account_type, 1000)
-    existing_accounts = Account.objects.filter(company=company, account_type=account_type)
+    prefix_map = {
+        'ASSET': 1000,
+        'LIABILITY': 2000,
+        'EQUITY': 3000,
+        'INCOME': 4000,
+        'REVENUE': 4000,
+        'EXPENSE': 5000,
+    }
+    acc_type_key = str(account_type).upper()
+    base_prefix = prefix_map.get(acc_type_key, 1000)
+    
+    # Filter accounts matching this type or prefix
+    existing_accounts = Account.objects.filter(company=company)
     
     numeric_codes = []
+    prefix_str = str(base_prefix)[:2]
     for acc in existing_accounts:
-        try:
+        if acc.code and acc.code.startswith(prefix_str) and acc.code.isdigit():
             numeric_codes.append(int(acc.code))
-        except ValueError:
-            continue
 
     return str(max(numeric_codes) + 10) if numeric_codes else str(base_prefix + 10)
 
@@ -140,7 +146,6 @@ def number_to_words(n):
 def login_view(request):
     redirect_to = request.POST.get('next') or request.GET.get('next') or ''
 
-    # If already logged in:
     if request.user.is_authenticated:
         if redirect_to:
             return redirect(redirect_to)
@@ -155,11 +160,9 @@ def login_view(request):
             login(request, user)
             messages.success(request, f"Welcome back, {user.username}!")
 
-            # Check if a specific destination was requested (e.g., /admin/)
             if redirect_to:
                 return redirect(redirect_to)
 
-            # Superusers default to Django Admin, regular users default to ERP Dashboard
             if user.is_superuser:
                 return redirect('/admin/')
             return redirect('dashboard')
@@ -179,8 +182,9 @@ def logout_view(request):
     messages.info(request, "You have been logged out.")
     return redirect('login')
 
+
 # ==============================================================================
-# Isolated Financial Views (All Scoped strictly to request.company)
+# Financial Views
 # ==============================================================================
 
 def dashboard_view(request):
@@ -235,7 +239,7 @@ def daybook_view(request):
 
 def voucher_create_view(request):
     comp = request.company
-
+    
     def get_voucher_context():
         accounts = Account.objects.filter(company=comp, is_active=True).order_by('code')
         accounts_data = [{'id': acc.id, 'name': f"{acc.code} - {acc.name}"} for acc in accounts]
@@ -284,7 +288,6 @@ def voucher_create_view(request):
             return render(request, 'accounting/voucher_form.html', get_voucher_context())
 
         with transaction.atomic():
-            # Company-isolated voucher numbering series
             year_month = timezone.now().strftime('%Y%m')
             count = Transaction.objects.filter(company=comp, voucher_number__startswith=f"JV-{year_month}").count() + 1
             voucher_number = f"JV-{year_month}-{count:04d}"
@@ -517,7 +520,7 @@ def balance_sheet_view(request):
 
 
 # ==============================================================================
-# Invoices & Templates (Company-Scoped Series)
+# Invoices & Templates
 # ==============================================================================
 
 def invoice_list_view(request):
@@ -532,7 +535,6 @@ def invoice_detail_view(request, invoice_id):
         company=request.company
     )
 
-    # 1. Handle Print Action Trigger
     if request.GET.get('print') == 'true':
         invoice.print_count += 1
         invoice.save(update_fields=['print_count'])
@@ -542,16 +544,13 @@ def invoice_detail_view(request, invoice_id):
             user=request.user,
             username=request.user.username,
             action='REPRINT' if invoice.print_count > 1 else 'CREATE',
-            table_name='Invoice',
+            table_name='accounting_invoice',
             record_id=invoice.invoice_number,
             ip_address=request.META.get('REMOTE_ADDR'),
-            details=f"Invoice {invoice.invoice_number} printed by {request.user.username}. Total prints: {invoice.print_count}"
+            details=f"Invoice {invoice.invoice_number} printed by {request.user.username}. Total prints recorded: {invoice.print_count}"
         )
-        return JsonResponse({'status': 'success', 'print_count': invoice.print_count})
+        return JsonResponse({'status': 'success', 'print_count': invoice.print_count , 'is_duplicate': invoice.print_count > 1})
 
-    # 2. IRD Title & Header Formatting
-    # First issuance (print_count == 0): "Original" & "कर बीजक / TAX INVOICE"
-    # Second print onward (print_count >= 1): "Copy of Original" & "बीजक / INVOICE"
     if invoice.print_count == 0:
         copy_text = "Original (खरिदकर्ताको प्रति)"
         invoice_title_nepali = "कर बीजक"
@@ -622,91 +621,11 @@ def template_edit_view(request, template_id=None):
     })
 
 
-# ==============================================================================
-# Asynchronous APIs (Company-Scoped)
-# ==============================================================================
-
-@require_POST
-def account_quick_create_api(request):
-    try:
-        data = json.loads(request.body)
-        account_type = data.get('account_type', '').strip()
-        code = data.get('code', '').strip()
-        name = data.get('name', '').strip()
-
-        if not name or not account_type:
-            return JsonResponse({'status': 'error', 'message': 'Account name and category are required.'}, status=400)
-
-        if not code:
-            code = get_next_account_code(request.company, account_type)
-
-        if Account.objects.filter(company=request.company, code=code).exists():
-            return JsonResponse({'status': 'error', 'message': f'Account code {code} already exists in your company.'}, status=400)
-
-        new_acc = Account.objects.create(
-            company=request.company,
-            code=code,
-            name=name,
-            account_type=account_type,
-            is_active=True
-        )
-
-        return JsonResponse({
-            'status': 'success',
-            'account': {
-                'id': new_acc.id,
-                'code': new_acc.code,
-                'name': new_acc.name,
-                'display_text': f"{new_acc.code} - {new_acc.name}"
-            }
-        })
-    except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
-
-
-@require_GET
-def get_next_code_api(request):
-    account_type = request.GET.get('account_type', '').strip()
-    if not account_type:
-        return JsonResponse({'status': 'error', 'message': 'Account type is required.'}, status=400)
-
-    next_code = get_next_account_code(request.company, account_type)
-    return JsonResponse({'status': 'success', 'next_code': next_code})
-
-
-@require_POST
-def customer_quick_create_api(request):
-    try:
-        data = json.loads(request.body)
-        name = data.get('name', '').strip()
-        tax_number = data.get('tax_number', '').strip()
-        phone = data.get('phone', '').strip()
-        address = data.get('address', '').strip()
-
-        if not name:
-            return JsonResponse({'status': 'error', 'message': 'Customer name is required.'}, status=400)
-
-        customer = Customer.objects.create(
-            company=request.company,
-            name=name,
-            tax_number=tax_number,
-            phone=phone,
-            address=address
-        )
-        return JsonResponse({
-            'status': 'success',
-            'customer': {
-                'id': customer.id,
-                'name': customer.name
-            }
-        })
-    except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
-    
 def audit_trail_view(request):
     """Clause 6.j: Front-End view to audit all activities and database actions."""
     logs = AuditLog.objects.filter(company=request.company).order_by('-timestamp')[:200]
     return render(request, 'accounting/audit_trail.html', {'logs': logs})
+
 
 # ==============================================================================
 # Tax Master Views
@@ -764,14 +683,15 @@ def product_list_view(request):
 def product_create_edit_view(request, product_id=None):
     comp = request.company
     product = get_object_or_404(Product, id=product_id, company=comp) if product_id else None
-    taxes = TaxConfiguration.objects.filter(company=comp, is_active=True).order_by('name')
+    taxes = TaxConfiguration.objects.filter(company=comp, is_active=True).order_by('tax_type', 'name')
 
     if request.method == 'POST':
         name = request.POST.get('name', '').strip()
         code = request.POST.get('code', '').strip()
         hs_code = request.POST.get('hs_code', '').strip()
         unit = request.POST.get('unit', 'Pcs').strip()
-        selling_price = Decimal(request.POST.get('selling_price') or '0.00')
+        price_val = request.POST.get('selling_price') or '0.00'
+        selling_price = Decimal(price_val)
         selected_tax_ids = request.POST.getlist('taxes')
 
         if not product:
@@ -795,22 +715,102 @@ def product_create_edit_view(request, product_id=None):
     })
 
 
+@require_POST
+def product_delete_view(request, product_id):
+    product = get_object_or_404(Product, id=product_id, company=request.company)
+    in_invoices = InvoiceItem.objects.filter(product=product).exists()
+    in_credit_notes = CreditNoteItem.objects.filter(product=product).exists()
+
+    if in_invoices or in_credit_notes:
+        messages.error(
+            request, 
+            f"Cannot delete '{product.name}' because it is linked to past IRD Tax Invoices or Credit Notes. "
+            f"To prevent further billing, please edit the product and uncheck 'Active Status' instead."
+        )
+        return redirect('product-list')
+    try:
+        product_name = product.name
+        product.delete()
+        messages.success(request, f"Product '{product_name}' deleted successfully.")
+    except ProtectedError:
+        messages.error(request, f"Cannot delete '{product.name}' because it is linked to existing invoices. Consider setting it to Inactive instead.")
+    return redirect('product-list')
+
+
 # ==============================================================================
-# Fuzzy Multi-Part Search APIs
+# Customer Master Views
+# ==============================================================================
+
+def customer_list_view(request):
+    customers = Customer.objects.filter(company=request.company).prefetch_related('applicable_taxes').order_by('name')
+    return render(request, 'accounting/customer_list.html', {'customers': customers})
+
+
+def customer_create_edit_view(request, customer_id=None):
+    comp = request.company
+    customer = get_object_or_404(Customer, id=customer_id, company=comp) if customer_id else None
+    taxes = TaxConfiguration.objects.filter(company=comp, is_active=True).order_by('tax_type', 'name')
+
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        email = request.POST.get('email', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        tax_number = request.POST.get('tax_number', '').strip()
+        address = request.POST.get('address', '').strip()
+        is_vat_exempt = request.POST.get('is_vat_exempt') == 'on'
+        is_active = request.POST.get('is_active') == 'on'
+        selected_tax_ids = request.POST.getlist('applicable_taxes')
+
+        if not customer:
+            customer = Customer(company=comp)
+
+        customer.name = name
+        customer.email = email
+        customer.phone = phone
+        customer.tax_number = tax_number
+        customer.address = address
+        customer.is_vat_exempt = is_vat_exempt
+        customer.is_active = is_active
+        customer.save()
+
+        customer.applicable_taxes.set(TaxConfiguration.objects.filter(id__in=selected_tax_ids, company=comp))
+        messages.success(request, f"Customer '{customer.name}' saved successfully.")
+        return redirect('customer-list')
+
+    return render(request, 'accounting/customer_form.html', {
+        'customer': customer,
+        'taxes': taxes
+    })
+
+
+@require_POST
+def customer_delete_view(request, customer_id):
+    customer = get_object_or_404(Customer, id=customer_id, company=request.company)
+    try:
+        customer_name = customer.name
+        customer.delete()
+        messages.success(request, f"Customer '{customer_name}' deleted successfully.")
+    except ProtectedError:
+        messages.error(request, f"Cannot delete '{customer.name}' because invoices or credit notes reference this customer. Set it to Inactive instead.")
+    return redirect('customer-list')
+
+
+# ==============================================================================
+# Autocomplete Search APIs
 # ==============================================================================
 
 @require_GET
 def product_search_api(request):
-    """Searches products across all partial words in any order."""
     query = request.GET.get('q', '').strip()
-    words = query.split()
-
     qs = Product.objects.filter(company=request.company, is_active=True)
-    for word in words:
-        qs = qs.filter(Q(name__icontains=word) | Q(code__icontains=word) | Q(hs_code__icontains=word))
+
+    if query:
+        words = query.split()
+        for word in words:
+            qs = qs.filter(Q(name__icontains=word) | Q(code__icontains=word) | Q(hs_code__icontains=word))
 
     results = []
-    for p in qs[:20]:
+    for p in qs[:50]:
         applicable_tax = p.taxes.filter(is_active=True).first()
         results.append({
             'id': p.id,
@@ -825,32 +825,33 @@ def product_search_api(request):
 
 @require_GET
 def customer_search_api(request):
-    """Searches customers across all partial words in any order."""
     query = request.GET.get('q', '').strip()
-    words = query.split()
+    qs = Customer.objects.filter(company=request.company, is_active=True)
 
-    qs = Customer.objects.filter(company=request.company)
-    for word in words:
-        qs = qs.filter(Q(name__icontains=word) | Q(tax_number__icontains=word) | Q(phone__icontains=word))
+    if query:
+        words = query.split()
+        for word in words:
+            qs = qs.filter(Q(name__icontains=word) | Q(tax_number__icontains=word) | Q(phone__icontains=word))
 
     results = []
-    for c in qs[:20]:
+    for c in qs[:50]:
         results.append({
             'id': c.id,
             'name': c.name,
             'tax_number': c.tax_number or 'N/A',
-            'address': c.address or '',
+            'address': c.address or '-',
             'is_vat_exempt': c.is_vat_exempt
         })
     return JsonResponse({'status': 'success', 'results': results})
 
 
 # ==============================================================================
-# Refined Invoice Creation Engine (Auto-Tax & Configurable Discounts)
+# Refined Invoice Creation Engine
 # ==============================================================================
 
 def invoice_create_view(request):
     comp = request.company
+    settings, _ = CompanySetting.objects.get_or_create(company=comp)
 
     if request.method == 'POST':
         customer_id = request.POST.get('customer_id')
@@ -858,11 +859,18 @@ def invoice_create_view(request):
         due_date = request.POST.get('due_date') or None
         notes = request.POST.get('notes', '')
 
-        # Discount parameters
+        if not customer_id:
+            messages.error(request, "Please select an existing customer from the master or create one before issuing an invoice.")
+            return render(request, 'accounting/invoice_form.html', {'settings': settings})
+
+        customer = Customer.objects.filter(id=customer_id, company=comp).first()
+        if not customer:
+            messages.error(request, "Selected customer does not exist in the Customer Master.")
+            return render(request, 'accounting/invoice_form.html', {'settings': settings})
+
         percent_rate = Decimal(request.POST.get('percent_discount_rate') or '0.00')
         value_discount = Decimal(request.POST.get('value_discount_amount') or '0.00')
 
-        # Line items
         product_ids = request.POST.getlist('product_id[]')
         descriptions = request.POST.getlist('description[]')
         hs_codes = request.POST.getlist('hs_code[]')
@@ -876,40 +884,42 @@ def invoice_create_view(request):
         line_items = []
         max_applied_tax_rate = Decimal('0.00')
 
-        customer = get_object_or_404(Customer, id=customer_id, company=comp)
-
         for i in range(len(descriptions)):
             desc = descriptions[i].strip()
+            p_id = product_ids[i].strip() if i < len(product_ids) else None
             qty = Decimal(quantities[i] or '0.00')
             price = Decimal(unit_prices[i] or '0.00')
-            p_id = product_ids[i] if i < len(product_ids) and product_ids[i] else None
             h_code = hs_codes[i] if i < len(hs_codes) else ''
             is_free = (is_free_flags[i] == '1') if i < len(is_free_flags) else False
             promo = promo_badges[i].strip() if i < len(promo_badges) else ''
 
-            if not desc or qty <= 0:
+            if not desc:
                 continue
 
-            line_amt = round(qty * price, 2)
+            if not p_id:
+                messages.error(request, f"Line item '{desc}' is not registered in the Product Master. Please select an existing product or create it.")
+                return render(request, 'accounting/invoice_form.html', {'settings': settings})
 
+            product_obj = Product.objects.filter(id=p_id, company=comp).first()
+            if not product_obj:
+                messages.error(request, f"Product for '{desc}' was not found in the Product Master.")
+                return render(request, 'accounting/invoice_form.html', {'settings': settings})
+
+            line_amt = round(qty * price, 2)
             if is_free:
-                # Value of free goods is calculated and added to the FREE discount line
                 free_discount_total += line_amt
             else:
                 gross_subtotal += line_amt
 
-            # Check product's tagged tax rate
-            if p_id and not customer.is_vat_exempt:
-                p_obj = Product.objects.filter(id=p_id, company=comp).first()
-                if p_obj:
-                    for t in p_obj.taxes.filter(is_active=True):
-                        if t.rate > max_applied_tax_rate:
-                            max_applied_tax_rate = t.rate
+            if not customer.is_vat_exempt:
+                for t in product_obj.taxes.filter(is_active=True):
+                    if t.rate > max_applied_tax_rate:
+                        max_applied_tax_rate = t.rate
 
             line_items.append({
-                'product_id': p_id,
-                'description': desc,
-                'hs_code': h_code,
+                'product_id': product_obj.id,
+                'description': product_obj.name,
+                'hs_code': h_code or product_obj.hs_code or '-',
                 'quantity': qty,
                 'unit_price': price,
                 'amount': line_amt,
@@ -918,19 +928,16 @@ def invoice_create_view(request):
             })
 
         if not line_items:
-            messages.error(request, "Invoice must contain at least one line item.")
-            return redirect('invoice-create')
+            messages.error(request, "Invoice must contain at least one valid product from the master.")
+            return render(request, 'accounting/invoice_form.html', {'settings': settings})
 
-        # Fallback to default VAT rate if customer is not exempt and no explicit product tax was assigned
         if max_applied_tax_rate == Decimal('0.00') and not customer.is_vat_exempt:
             default_tax = TaxConfiguration.objects.filter(company=comp, tax_type=TaxType.VAT, is_active=True).first()
             if default_tax:
                 max_applied_tax_rate = default_tax.rate
 
-        # Calculate discounts
         pct_discount_amt = round(gross_subtotal * (percent_rate / Decimal('100.00')), 2)
         total_discount_calculated = pct_discount_amt + value_discount + free_discount_total
-
         taxable_subtotal = max(Decimal('0.00'), gross_subtotal - (pct_discount_amt + value_discount))
         tax_amount = round(taxable_subtotal * (max_applied_tax_rate / Decimal('100.00')), 2)
         grand_total = taxable_subtotal + tax_amount
@@ -1012,10 +1019,11 @@ def invoice_create_view(request):
                     promo_badge=itm['promo_badge']
                 )
 
-        messages.success(request, f"Invoice {invoice_number} created.")
+        messages.success(request, f"Invoice {invoice_number} created successfully.")
         return redirect('invoice-list')
 
-    return render(request, 'accounting/invoice_form.html')
+    return render(request, 'accounting/invoice_form.html', {'settings': settings})
+
 
 def credit_note_list_view(request):
     credit_notes = CreditNote.objects.filter(company=request.company).select_related('customer', 'original_invoice')
@@ -1034,7 +1042,6 @@ def credit_note_create_view(request):
         original_invoice = get_object_or_404(Invoice, id=invoice_id, company=comp)
         customer = original_invoice.customer
 
-        # Read line items returned
         descriptions = request.POST.getlist('description[]')
         hs_codes = request.POST.getlist('hs_code[]')
         quantities = request.POST.getlist('quantity[]')
@@ -1081,7 +1088,6 @@ def credit_note_create_view(request):
             jv_count = Transaction.objects.filter(company=comp, voucher_number__startswith=f"JV-{ym}").count() + 1
             jv_number = f"JV-{ym}-{jv_count:04d}"
 
-            # Post reversing Double-Entry Journal Voucher
             txn = Transaction.objects.create(
                 company=comp,
                 date=date,
@@ -1090,7 +1096,6 @@ def credit_note_create_view(request):
                 narration=f"Credit Note {credit_note_number} against Invoice {original_invoice.invoice_number} ({reason})"
             )
 
-            # Ledgers: Debit Sales Return / Sales, Debit VAT Payable, Credit Accounts Receivable
             sales_return_acc = Account.objects.filter(company=comp, name__icontains='Return').first() or \
                                Account.objects.filter(company=comp, code='4010').first()
             tax_acc = Account.objects.filter(company=comp, code='2020').first()
@@ -1146,7 +1151,6 @@ def credit_note_create_view(request):
                     amount=item['amount']
                 )
 
-            # Audit record
             AuditLog.objects.create(
                 company=comp,
                 user=request.user,
@@ -1161,7 +1165,6 @@ def credit_note_create_view(request):
         messages.success(request, f"Credit Note {credit_note_number} generated and posted.")
         return redirect('credit-note-detail', credit_note_id=cn.id)
 
-    # Preload invoices for selection
     invoices = Invoice.objects.filter(company=comp).order_by('-date', '-id')[:50]
     return render(request, 'accounting/credit_note_form.html', {
         'invoices': invoices,
@@ -1201,7 +1204,6 @@ def credit_note_detail_view(request, credit_note_id):
         cn_title_nepali = "क्रेडिट नोट (प्रतिलिपि)"
         cn_title_english = "CREDIT NOTE (COPY)"
 
-    # Dynamic Template Selection (query param or default)
     selected_template_id = request.GET.get('template')
     all_templates = CreditNoteTemplate.objects.filter(company=request.company)
 
@@ -1210,7 +1212,6 @@ def credit_note_detail_view(request, credit_note_id):
     else:
         template = all_templates.filter(is_default=True).first() or all_templates.first()
 
-    # Fallback to an empty template structure if no row exists in DB
     if not template:
         template = CreditNoteTemplate.objects.create(
             company=request.company,
@@ -1233,7 +1234,6 @@ def credit_note_detail_view(request, credit_note_id):
 
 @require_GET
 def invoice_items_api(request, invoice_id):
-    """Fetches line items of an existing invoice to prepopulate credit note returns."""
     inv = get_object_or_404(Invoice, id=invoice_id, company=request.company)
     items = []
     for item in inv.items.all():
@@ -1254,9 +1254,11 @@ def invoice_items_api(request, invoice_id):
         'items': items
     })
 
+
 def credit_note_template_list_view(request):
     templates = CreditNoteTemplate.objects.filter(company=request.company)
     return render(request, 'accounting/credit_note_template_list.html', {'templates': templates})
+
 
 def credit_note_template_edit_view(request, template_id=None):
     comp = request.company
@@ -1292,3 +1294,180 @@ def credit_note_template_edit_view(request, template_id=None):
         'template': template,
         'page_sizes': CreditNoteTemplate.PAGE_SIZE_CHOICES
     })
+    
+
+def company_settings_view(request):
+    comp = request.company
+    settings, _ = CompanySetting.objects.get_or_create(company=comp)
+
+    if request.method == 'POST':
+        settings.enable_percent_discount = request.POST.get('enable_percent_discount') == 'on'
+        settings.enable_value_discount = request.POST.get('enable_value_discount') == 'on'
+        settings.enable_free_item_discount = request.POST.get('enable_free_item_discount') == 'on'
+        settings.enable_promotions = request.POST.get('enable_promotions') == 'on'
+        settings.allow_quick_customer_creation = request.POST.get('allow_quick_customer_creation') == 'on'
+        settings.allow_quick_product_creation = request.POST.get('allow_quick_product_creation') == 'on'
+        settings.save()
+
+        messages.success(request, "Company feature configurations updated successfully.")
+        return redirect('company-settings')
+
+    return render(request, 'accounting/company_settings.html', {'settings': settings})
+
+
+@require_POST
+def quick_create_customer_api(request):
+    comp = request.company
+    settings, _ = CompanySetting.objects.get_or_create(company=comp)
+
+    if not settings.allow_quick_customer_creation:
+        return JsonResponse({'status': 'error', 'message': 'On-the-fly customer creation is disabled in System Configuration.'}, status=403)
+
+    name = request.POST.get('name', '').strip()
+    pan = request.POST.get('tax_number', '').strip()
+    address = request.POST.get('address', '').strip()
+    phone = request.POST.get('phone', '').strip()
+
+    if not name:
+        return JsonResponse({'status': 'error', 'message': 'Customer Name is required.'}, status=400)
+
+    cust = Customer.objects.create(
+        company=comp,
+        name=name,
+        tax_number=pan,
+        address=address,
+        phone=phone
+    )
+
+    return JsonResponse({
+        'status': 'success',
+        'customer': {
+            'id': cust.id,
+            'name': cust.name,
+            'tax_number': cust.tax_number or 'N/A',
+            'address': cust.address or '-'
+        }
+    })
+
+
+@require_POST
+def quick_create_product_api(request):
+    comp = request.company
+    settings, _ = CompanySetting.objects.get_or_create(company=comp)
+
+    if not settings.allow_quick_product_creation:
+        return JsonResponse({'status': 'error', 'message': 'On-the-fly product creation is disabled in System Configuration.'}, status=403)
+
+    name = request.POST.get('name', '').strip()
+    price_val = request.POST.get('selling_price', '0.00').strip()
+    hs_code = request.POST.get('hs_code', '').strip()
+
+    if not name:
+        return JsonResponse({'status': 'error', 'message': 'Product Name is required.'}, status=400)
+
+    try:
+        selling_price = Decimal(price_val or '0.00')
+    except Exception:
+        selling_price = Decimal('0.00')
+
+    prod = Product.objects.filter(company=comp, name__iexact=name).first()
+    if not prod:
+        prod = Product.objects.create(
+            company=comp,
+            name=name,
+            selling_price=selling_price,
+            hs_code=hs_code
+        )
+        vat_tax = TaxConfiguration.objects.filter(company=comp, tax_type=TaxType.VAT, is_active=True).first()
+        if vat_tax:
+            prod.taxes.add(vat_tax)
+    else:
+        if selling_price > 0:
+            prod.selling_price = selling_price
+        if hs_code:
+            prod.hs_code = hs_code
+        prod.save()
+
+    applicable_tax = prod.taxes.filter(is_active=True).first()
+
+    return JsonResponse({
+        'status': 'success',
+        'product': {
+            'id': prod.id,
+            'name': prod.name,
+            'hs_code': prod.hs_code or '-',
+            'unit_price': float(prod.selling_price),
+            'tax_name': applicable_tax.name if applicable_tax else 'No Tax',
+            'tax_rate': float(applicable_tax.rate) if applicable_tax else 0.0
+        }
+    })
+
+
+@require_POST
+def quick_create_account_api(request):
+    comp = request.company
+    name = request.POST.get('name', '').strip()
+    category = request.POST.get('account_type', '').strip().upper()
+    code = request.POST.get('code', '').strip()
+
+    if not name:
+        return JsonResponse({'status': 'error', 'message': 'Account Name is required.'}, status=400)
+    
+    if not code or code == 'Generating...':
+        code = get_next_account_code(comp, category)
+
+    account, created = Account.objects.get_or_create(
+        company=comp,
+        code=code,
+        defaults={
+            'name': name,
+            'account_type': category,
+            'is_active': True,
+        }
+    )
+    if not created:
+        account.name = name
+        account.account_type = category
+        account.is_active = True
+        account.save()
+
+    return JsonResponse({
+        'status': 'success',
+        'account': {
+            'id': account.id,
+            'name': account.name,
+            'code': account.code,
+            'account_type': account.get_account_type_display(),
+            'display_text': f"{account.code} - {account.name}"
+        }
+    })
+
+
+@require_GET
+def get_next_account_code_api(request):
+    comp = request.company
+    category = request.GET.get('category', '').strip().upper() or request.GET.get('account_type', '').strip().upper()
+    next_code = get_next_account_code(comp, category or 'ASSET')
+    return JsonResponse({'status': 'success', 'next_code': str(next_code)})
+
+@require_GET
+def account_search_api(request):
+    """Searches active ledger accounts across code and name or lists all if blank."""
+    query = request.GET.get('q', '').strip()
+    qs = Account.objects.filter(company=request.company, is_active=True).order_by('code')
+
+    if query:
+        words = query.split()
+        for word in words:
+            qs = qs.filter(Q(code__icontains=word) | Q(name__icontains=word))
+
+    results = []
+    for acc in qs[:50]:
+        results.append({
+            'id': acc.id,
+            'code': acc.code,
+            'name': acc.name,
+            'type': acc.get_account_type_display(),
+            'display_text': f"{acc.code} - {acc.name}"
+        })
+    return JsonResponse({'status': 'success', 'results': results})

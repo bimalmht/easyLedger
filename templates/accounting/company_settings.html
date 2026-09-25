@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+
+{% block title %}System Configuration - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+  <div class="pb-3 border-b border-slate-200">
+    <h1 class="text-xl font-bold text-slate-900 tracking-tight">System & Workflow Configuration</h1>
+    <p class="text-xs text-slate-500">Enable or disable transaction features, discount lines, and on-the-fly master creation.</p>
+  </div>
+
+  <form method="POST" class="space-y-6">
+    {% csrf_token %}
+
+    <!-- Discount Rules Section -->
+    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+      <h2 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+        <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
+        Sales Invoicing Discounts & Promotions
+      </h2>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+        <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+          <input type="checkbox" name="enable_percent_discount" {% if settings.enable_percent_discount %}checked{% endif %} class="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500">
+          <div>
+            <span class="font-bold text-slate-800">Percentage (%) Discount</span>
+            <p class="text-slate-500 text-[11px]">Allows applying a percentage discount across the gross taxable subtotal.</p>
+          </div>
+        </label>
+
+        <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+          <input type="checkbox" name="enable_value_discount" {% if settings.enable_value_discount %}checked{% endif %} class="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500">
+          <div>
+            <span class="font-bold text-slate-800">Flat Value (Rs.) Discount</span>
+            <p class="text-slate-500 text-[11px]">Allows applying a direct flat amount deduction before VAT calculations.</p>
+          </div>
+        </label>
+
+        <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+          <input type="checkbox" name="enable_free_item_discount" {% if settings.enable_free_item_discount %}checked{% endif %} class="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500">
+          <div>
+            <span class="font-bold text-slate-800">100% Free Items (Goods Discount)</span>
+            <p class="text-slate-500 text-[11px]">Enables marking line items as 100% Free Goods (e.g. Buy 10 Get 1 Free).</p>
+          </div>
+        </label>
+
+        <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+          <input type="checkbox" name="enable_promotions" {% if settings.enable_promotions %}checked{% endif %} class="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500">
+          <div>
+            <span class="font-bold text-slate-800">Promotional Item Badges</span>
+            <p class="text-slate-500 text-[11px]">Allows tagging gifts on invoices (e.g. Pilot Pen Free) without deduction.</p>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- On-the-fly Master Creation Section -->
+    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+      <h2 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+        <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+        Master Creation During Transactions
+      </h2>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+        <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+          <input type="checkbox" name="allow_quick_customer_creation" {% if settings.allow_quick_customer_creation %}checked{% endif %} class="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500">
+          <div>
+            <span class="font-bold text-slate-800">Quick Customer Creation</span>
+            <p class="text-slate-500 text-[11px]">Enables a "+ New Customer" button directly in the invoice creation screen.</p>
+          </div>
+        </label>
+
+        <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+          <input type="checkbox" name="allow_quick_product_creation" {% if settings.allow_quick_product_creation %}checked{% endif %} class="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500">
+          <div>
+            <span class="font-bold text-slate-800">Quick Product Creation</span>
+            <p class="text-slate-500 text-[11px]">Allows creating a product immediately if not found during item search.</p>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <div class="flex justify-end">
+      <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs shadow-xs transition-colors">
+        Save Configuration
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}
