@@ -58,3 +58,30 @@ Phase 2: Receivables, Aging & Settlements (Next Focus)
 •	[ ] Payment Receipts (CR Vouchers): Cash/Bank collection vouchers with line-item settlement against open tax invoices (FIFO and manual allocation).
 •	[ ] Customer Outstanding Statements: Shareable customer account statements detailing invoiced amounts, received payments, credit note adjustments, and closing balance.
 
+# tomorrow starting prompt - 26th Sep 2026
+
+We are building "EasyLedger ERP", an enterprise-grade multi-tenant web application compliant with Nepal IRD Electronic Billing Directives (Schedule 5 Tax Invoices and Schedule 6 Credit Notes).
+
+### Tech Stack & Established Patterns
+- Python 3.14, Django 6.1, PostgreSQL 16+ with PL/pgSQL triggers (`prevent_financial_deletion`, `prevent_invoice_tampering`, `audit_table_change`), Tailwind CSS, Vanilla JS.
+- Multi-tenancy: Strictly scoped by `request.company`.
+- Master Autocomplete Standard: All master selections (Customer, Product, and Account) use typable inputs with click-to-browse loading, partial multi-word search, "+ Create new in Master" dropdown options, blur/Tab immediate red inline validation, and strict submit-blocking for unconfirmed entries.
+- Print Engine: Full A4/A5 CSS flex layouts (`justify-between`) with dynamic `@page` sizing, reprint counter tracking ("Original" vs "Copy of Original"), and AuditLog writes.
+- Active Master Protection: Items tied to financial records cannot be deleted (`models.PROTECT`); they must be marked inactive (`is_active=False`) to hide them from new transactions.
+- Navigation Structure:
+  - Sales (Invoices, Credit Notes)
+  - Finance (Vouchers, Daybook, COA, Financial Reports)
+  - Master (Customer Master, Product Master, Tax Configurations)
+  - Audit Trail (IRD compliance logs)
+  - ⚙️ Settings (System Configuration, Invoice Templates, Credit Note Templates)
+
+### Current State
+Phase 1 (Invoicing, Credit Notes, Masters, Vouchers, Triggers, and Print Templates) is fully built, tested, and operational.
+
+### Today's Goal
+We are starting Phase 2:
+1. Customer Ledger Aging Analysis (<30, 30–60, 60–90, 90+ days).
+2. Payment Receipts (Cash/Bank collection) with allocation/settlement against open tax invoices.
+3. Customer Outstanding Statements.
+
+Please maintain all existing colors, Tailwind classes, typography, design consistency, and multi-tenant security standards. Let's begin!

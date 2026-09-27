@@ -53,7 +53,20 @@
               </div>
             </div>
 
-            <!-- 2. Finance Dropdown -->
+            <!-- 2. Purchase Dropdown -->
+            <div class="relative dropdown-container">
+              <button type="button" onclick="toggleDropdown('purchaseDropdownMenu')" class="px-3 py-2 rounded-lg hover:text-indigo-600 hover:bg-slate-50 transition-colors flex items-center gap-1">
+                <span>Purchase</span>
+                <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div id="purchaseDropdownMenu" class="dropdown-menu hidden absolute left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50">
+                <div class="px-3 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Purchases & Bills</div>
+                <a href="{% url 'purchase_invoice_list' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Purchase Invoices</a>
+                <a href="{% url 'purchase_invoice_create' %}" class="block px-3 py-2 text-indigo-600 hover:bg-indigo-50 font-bold">+ New Purchase Invoice</a>
+              </div>
+            </div>
+
+            <!-- 3. Finance Dropdown -->
             <div class="relative dropdown-container">
               <button type="button" onclick="toggleDropdown('financeDropdownMenu')" class="px-3 py-2 rounded-lg hover:text-indigo-600 hover:bg-slate-50 transition-colors flex items-center gap-1">
                 <span>Finance</span>
@@ -72,7 +85,7 @@
               </div>
             </div>
 
-            <!-- 3. Master Dropdown (Entities Only) -->
+            <!-- 4. Master Dropdown (Supplier positioned directly above Customer) -->
             <div class="relative dropdown-container">
               <button type="button" onclick="toggleDropdown('masterDropdownMenu')" class="px-3 py-2 rounded-lg hover:text-indigo-600 hover:bg-slate-50 transition-colors flex items-center gap-1">
                 <span>Master</span>
@@ -80,18 +93,20 @@
               </button>
               <div id="masterDropdownMenu" class="dropdown-menu hidden absolute left-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50">
                 <div class="px-3 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Business Masters</div>
+                <a href="{% url 'supplier-list' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600 font-medium">Supplier Master</a>
                 <a href="{% url 'customer-list' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Customer Master</a>
                 <a href="{% url 'product-list' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Product Master</a>
                 <a href="{% url 'tax-list' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Tax Configurations</a>
+                <a href="{% url 'other-charges-list' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">Other Charges Master</a>
               </div>
             </div>
 
-            <!-- 4. Independent Compliance Item -->
+            <!-- 5. Independent Compliance Item -->
             <a href="{% url 'audit-trail' %}" class="px-3 py-2 rounded-lg hover:text-indigo-600 hover:bg-slate-50 transition-colors">
               Audit Trail
             </a>
 
-            <!-- 5. Dedicated Settings Dropdown (Option 3) -->
+            <!-- 6. Dedicated Settings Dropdown -->
             <div class="relative dropdown-container pl-2 ml-1 border-l border-slate-200">
               <button type="button" onclick="toggleDropdown('settingsDropdownMenu')" class="p-2 rounded-lg hover:text-indigo-600 hover:bg-slate-100 transition-colors text-slate-500 flex items-center gap-1" title="Settings & Setup">
                 <svg class="w-4 h-4 text-slate-600 hover:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -150,6 +165,11 @@
           <a href="{% url 'credit-note-list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Credit Notes (Schedule 6)</a>
           <a href="{% url 'credit-note-create' %}" class="block pl-6 pr-3 py-1.5 text-indigo-600 font-bold hover:bg-indigo-50">+ Issue Credit Note</a>
 
+          <!-- Purchase Mobile Section -->
+          <div class="px-3 py-1 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Purchase</div>
+          <a href="{% url 'purchase_invoice_list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Purchase Invoices</a>
+          <a href="{% url 'purchase_invoice_create' %}" class="block pl-6 pr-3 py-1.5 text-indigo-600 font-bold hover:bg-indigo-50">+ New Purchase Invoice</a>
+
           <!-- Finance Mobile Section -->
           <div class="px-3 py-1 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Finance</div>
           <a href="{% url 'voucher-create' %}" class="block pl-6 pr-3 py-1.5 text-indigo-600 font-bold hover:bg-indigo-50">+ New Voucher (JV)</a>
@@ -161,6 +181,7 @@
 
           <!-- Master Mobile Section -->
           <div class="px-3 py-1 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Master Data</div>
+          <a href="{% url 'supplier-list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50 font-medium">Supplier Master</a>
           <a href="{% url 'customer-list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Customer Master</a>
           <a href="{% url 'product-list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Product Master</a>
           <a href="{% url 'tax-list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Tax Configurations</a>
@@ -230,5 +251,6 @@
     });
   </script>
   {% block scripts %}{% endblock %}
+  {% block extra_js %}{% endblock %}
 </body>
 </html>

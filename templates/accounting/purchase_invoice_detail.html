@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+
+{% block title %}Purchase Invoice {{ invoice.invoice_number }} - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-4">
+  <!-- Controls -->
+  <div class="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+    <a href="{% url 'purchase_invoice_list' %}" class="text-xs font-semibold text-slate-600 hover:text-indigo-600">&larr; Back to Invoices</a>
+    <div class="flex items-center gap-2">
+      <button type="button" onclick="window.print()" class="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors flex items-center gap-1.5">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4H7v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+        Print
+      </button>
+    </div>
+  </div>
+
+  <!-- Document Card -->
+  <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-6 text-xs">
+    
+    <!-- Top Details -->
+    <div class="flex justify-between items-start border-b border-slate-200 pb-4">
+      <div>
+        <h1 class="text-lg font-bold text-slate-900">Purchase Invoice {{ invoice.invoice_number }}</h1>
+        <p class="text-slate-500 font-mono text-[11px]">Voucher Ref: {{ invoice.transaction.voucher_number|default:"-" }}</p>
+      </div>
+      <div class="text-right">
+        <span class="inline-block px-2.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase">
+          COMMITTED TO STOCK
+        </span>
+      </div>
+    </div>
+
+    <!-- Particulars Box -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 p-3 bg-slate-50 rounded-lg border border-slate-200 text-[11px]">
+      <div>
+        <span class="block text-slate-500 uppercase font-semibold text-[10px]">Supplier / Vendor</span>
+        <span class="font-bold text-slate-900">{{ invoice.supplier.name }}</span>
+      </div>
+      <div>
+        <span class="block text-slate-500 uppercase font-semibold text-[10px]">Supplier Bill No</span>
+        <span class="font-mono font-bold text-slate-800">{{ invoice.supplier_invoice_no }}</span>
+      </div>
+      <div>
+        <span class="block text-slate-500 uppercase font-semibold text-[10px]">Bill Date</span>
+        <span class="font-mono text-slate-800">{{ invoice.supplier_invoice_date|date:"Y-m-d" }}</span>
+      </div>
+      <div>
+        <span class="block text-slate-500 uppercase font-semibold text-[10px]">Supplier PAN</span>
+        <span class="font-mono font-bold text-slate-800">{{ invoice.supplier.pan_vat_number|default:"N/A" }}</span>
+      </div>
+    </div>
+
+    <!-- Line Items Table -->
+    <div class="border border-slate-200 rounded-lg overflow-hidden">
+      <table class="w-full text-left text-xs min-w-[700px]">
+        <thead class="bg-slate-50 font-bold text-slate-700 border-b border-slate-200 text-[11px]">
+          <tr>
+            <th class="p-2.5">Product Name</th>
+            <th class="p-2.5 text-right w-16">Qty</th>
+            <th class="p-2.5 text-right w-24">Rate (Rs.)</th>
+            <th class="p-2.5 text-right w-20">Discount</th>
+            <th class="p-2.5 text-right w-20">Excise (5%)</th>
+            <th class="p-2.5 text-right w-20">VAT (13%)</th>
+            <th class="p-2.5 text-right w-24">Line Total</th>
+            <th class="p-2.5 text-right w-28 bg-indigo-50 text-indigo-700">Unit Landed Cost</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 font-mono text-[11.5px]">
+          {% for item in invoice.items.all %}
+            <tr>
+              <td class="p-2.5 font-sans font-medium text-slate-900">{{ item.product.name }}</td>
+              <td class="p-2.5 text-right">{{ item.quantity|floatformat:2 }}</td>
+              <td class="p-2.5 text-right">{{ item.rate|floatformat:2 }}</td>
+              <td class="p-2.5 text-right text-rose-600">-{{ item.discount_amount|floatformat:2 }}</td>
+              <td class="p-2.5 text-right">{{ item.excise_amount|floatformat:2 }}</td>
+              <td class="p-2.5 text-right">{{ item.vat_amount|floatformat:2 }}</td>
+              <td class="p-2.5 text-right font-bold text-slate-900">Rs. {{ item.total_amount|floatformat:2 }}</td>
+              <td class="p-2.5 text-right font-bold text-indigo-700 bg-indigo-50/50">Rs. {{ item.landing_cost_per_unit|floatformat:4 }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Dual Summary -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+      <!-- Apportioned Charges -->
+      <div class="border border-slate-200 p-4 rounded-xl bg-slate-50 space-y-2">
+        <h3 class="font-bold text-slate-800 text-xs border-b border-slate-200 pb-1.5">Capitalized Other Charges</h3>
+        {% for chg in invoice.other_charges.all %}
+          <div class="flex justify-between text-[11px] text-slate-700 font-mono">
+            <span>{{ chg.charge_master.name }}:</span>
+            <span class="font-bold">Rs. {{ chg.amount|floatformat:2 }}</span>
+          </div>
+        {% empty %}
+          <p class="text-slate-400 italic text-[11px]">No ancillary charges applied.</p>
+        {% endfor %}
+      </div>
+
+      <!-- Financial Totals -->
+      <div class="border border-slate-200 p-4 rounded-xl bg-white space-y-1.5 font-mono text-xs shadow-2xs">
+        <div class="flex justify-between"><span>Gross Subtotal:</span><span>{{ invoice.gross_amount|floatformat:2 }}</span></div>
+        <div class="flex justify-between text-rose-600"><span>Trade Discount:</span><span>-{{ invoice.total_discount|floatformat:2 }}</span></div>
+        <div class="flex justify-between font-semibold border-t pt-1"><span>Taxable Base:</span><span>{{ invoice.taxable_amount|floatformat:2 }}</span></div>
+        <div class="flex justify-between"><span>Excise Duty (5%):</span><span>{{ invoice.excise_amount|floatformat:2 }}</span></div>
+        <div class="flex justify-between"><span>VAT (13%):</span><span>{{ invoice.vat_amount|floatformat:2 }}</span></div>
+        <div class="flex justify-between"><span>Other Charges (Capitalized):</span><span>{{ invoice.total_other_charges|floatformat:2 }}</span></div>
+        <div class="flex justify-between font-bold text-sm text-indigo-600 border-t pt-1"><span>Grand Total:</span><span>Rs. {{ invoice.grand_total|floatformat:2 }}</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

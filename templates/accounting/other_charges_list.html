@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block title %}Other Charges Master - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto space-y-4">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+    <div>
+      <h1 class="text-xl font-bold text-slate-900 tracking-tight">Other Charges Master</h1>
+      <p class="text-xs text-slate-500">Manage ancillary purchase charges (Freight, Labor, Clearing agent fees) capitalized to inventory landed cost.</p>
+    </div>
+    <a href="{% url 'other-charges-create' %}" class="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors flex items-center gap-1.5 self-start sm:self-auto">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      + New Charge
+    </a>
+  </div>
+
+  <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs text-slate-600 min-w-[700px]">
+        <thead class="bg-slate-50 text-slate-700 uppercase font-bold border-b border-slate-200 text-[11px] tracking-wider">
+          <tr>
+            <th class="py-3 px-4">Charge Code</th>
+            <th class="py-3 px-4">Charge Description / Name</th>
+            <th class="py-3 px-4">Settlement Ledger Account</th>
+            <th class="py-3 px-4 text-center">Status</th>
+            <th class="py-3 px-4 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 font-mono text-[11px]">
+          {% for c in charges %}
+            <tr class="hover:bg-slate-50/80 transition-colors">
+              <td class="py-3 px-4 font-bold text-slate-800">{{ c.code }}</td>
+              <td class="py-3 px-4 font-sans font-bold text-slate-900">
+                <a href="{% url 'other-charges-edit' c.id %}" class="hover:text-indigo-600 hover:underline">
+                  {{ c.name }}
+                </a>
+              </td>
+              <td class="py-3 px-4 font-sans text-slate-600">
+                {{ c.default_account.code }} - {{ c.default_account.name|default:"Accounts Payable (Default)" }}
+              </td>
+              <td class="py-3 px-4 text-center font-sans">
+                {% if c.is_active %}
+                  <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">Active</span>
+                {% else %}
+                  <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">Inactive</span>
+                {% endif %}
+              </td>
+              <td class="py-3 px-4 text-right font-sans">
+                <div class="flex items-center justify-end gap-2">
+                  <a href="{% url 'other-charges-edit' c.id %}" class="px-2.5 py-1 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50 rounded border border-indigo-200">
+                    Edit
+                  </a>
+                  <form method="POST" action="{% url 'other-charges-delete' c.id %}" onsubmit="return confirm('Delete charge \'{{ c.name }}\'?');" class="inline">
+                    {% csrf_token %}
+                    <button type="submit" class="px-2.5 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 rounded border border-rose-200">
+                      Delete
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="5" class="py-8 text-center text-slate-400 font-sans text-xs">
+                No charges registered yet. Click "+ New Charge" to define Freight, Labor, or Agent charges.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

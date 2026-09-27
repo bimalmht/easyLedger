@@ -1,15 +1,18 @@
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
+import uuid
 import json
-
 from django.shortcuts import render, redirect, get_object_or_404
 from django.db import transaction
 from django.contrib import messages
 from django.utils import timezone
-from django.db.models import Sum, Q, ProtectedError
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET, require_POST
+from django.db.models import Sum, Q, ProtectedError, F
+from django.http import JsonResponse, HttpResponseBadRequest
+from django.views.decorators.http import require_GET, require_POST, require_http_methods
 from django.contrib.auth import login, logout
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
+
+
 from .models import (    
     AuditLog,
     Company,
@@ -29,6 +32,15 @@ from .models import (
     CreditNoteTemplate,
     CompanySetting,
     TaxType,
+    Supplier,
+    OtherChargeMaster,
+    Warehouse,
+    PurchaseInvoice,
+    PurchaseInvoiceItem,
+    PurchaseInvoiceOtherCharge,
+    StockLedgerEntry,
+    Voucher,
+    VoucherEntry,
 )
 
 # ==============================================================================
@@ -799,27 +811,55 @@ def customer_delete_view(request, customer_id):
 # Autocomplete Search APIs
 # ==============================================================================
 
+@login_required
 @require_GET
 def product_search_api(request):
+    """
+    Unified Master Autocomplete: Product search by name, code, or HS code.
+    Returns product-specific VAT and Excise rates from Master Tax Configuration.
+    """
+    company = request.company
     query = request.GET.get('q', '').strip()
-    qs = Product.objects.filter(company=request.company, is_active=True)
+
+    qs = Product.objects.filter(company=company, is_active=True).prefetch_related('taxes')
 
     if query:
         words = query.split()
         for word in words:
-            qs = qs.filter(Q(name__icontains=word) | Q(code__icontains=word) | Q(hs_code__icontains=word))
+            qs = qs.filter(
+                Q(name__icontains=word) | Q(code__icontains=word) | Q(hs_code__icontains=word)
+            )
 
     results = []
     for p in qs[:50]:
-        applicable_tax = p.taxes.filter(is_active=True).first()
+        active_taxes = p.taxes.filter(is_active=True)
+        
+        # Check tagged taxes for VAT and Excise Duty
+        vat_tax = active_taxes.filter(tax_type=TaxType.VAT).first()
+        excise_tax = active_taxes.filter(tax_type=TaxType.EXCISE).first()
+
+        # Fallback check if excise was registered with 'excise' in its name
+        if not excise_tax:
+            excise_tax = active_taxes.filter(name__icontains='excise').first()
+
+        vat_rate = float(vat_tax.rate) if vat_tax else 0.0
+        excise_rate = float(excise_tax.rate) if excise_tax else 0.0
+
+        default_cost_rate = float(p.purchase_rate) if getattr(p, 'purchase_rate', None) else float(p.selling_price or 0.0)
+
         results.append({
-            'id': p.id,
+            'id': str(p.id),
             'name': p.name,
+            'code': p.code or '',
             'hs_code': p.hs_code or '-',
-            'unit_price': float(p.selling_price),
-            'tax_rate': float(applicable_tax.rate) if applicable_tax else 0.0,
-            'tax_name': applicable_tax.name if applicable_tax else 'No Tax'
+            'unit_price': default_cost_rate,
+            'selling_price': float(p.selling_price or 0.0),
+            'rate': f"{default_cost_rate:.2f}",
+            'vat_rate': vat_rate,
+            'excise_rate': excise_rate,
+            'display': f"{p.name} [{p.code}]" if p.code else p.name
         })
+
     return JsonResponse({'status': 'success', 'results': results})
 
 
@@ -1471,3 +1511,596 @@ def account_search_api(request):
             'display_text': f"{acc.code} - {acc.name}"
         })
     return JsonResponse({'status': 'success', 'results': results})
+
+
+# ==============================================================================
+# Master Autocomplete APIs
+# ==============================================================================
+
+@login_required
+@require_GET
+def supplier_search_api(request):
+    """
+    Standard Master Autocomplete: Supplier search by name and PAN/VAT.
+    Strictly scoped to request.company.
+    """
+    company = request.company
+    query = request.GET.get('q', '').strip()
+
+    suppliers = Supplier.objects.filter(company=company, is_active=True)
+    if query:
+        for term in query.split():
+            suppliers = suppliers.filter(
+                Q(name__icontains=term) | Q(pan_vat_number__icontains=term)
+            )
+
+    results = [
+        {
+            "id": str(s.id),
+            "name": s.name,
+            "pan": s.pan_vat_number,
+            "address": s.address,
+            "display": f"{s.name} (PAN: {s.pan_vat_number})"
+        }
+        for s in suppliers[:20]
+    ]
+    return JsonResponse({"results": results})
+
+
+@login_required
+@require_GET
+def other_charges_list_api(request):
+    """
+    Returns active Other Charges (Freight, Labor, Clearing Charges) from Master.
+    """
+    charges = OtherChargeMaster.objects.filter(company=request.company, is_active=True)
+    results = [
+        {
+            "id": str(c.id),
+            "code": c.code,
+            "name": c.name
+        }
+        for c in charges
+    ]
+    return JsonResponse({"results": results})
+
+
+# ==============================================================================
+# Purchase Invoice Views & Business Engine
+# ==============================================================================
+
+@login_required
+@require_GET
+def purchase_invoice_list(request):
+    """List recent purchase invoices with pagination."""
+    invoices = PurchaseInvoice.objects.filter(company=request.company).select_related('supplier').order_by('-created_at')
+    return render(request, 'accounting/purchase_invoice_list.html', {
+        'invoices': invoices
+    })
+
+
+@login_required
+@require_GET
+def purchase_invoice_detail(request, pk):
+    """Read-only view of a saved purchase invoice and landed costs."""
+    invoice = get_object_or_404(
+        PurchaseInvoice.objects.select_related('supplier', 'warehouse', 'transaction').prefetch_related('items__product', 'other_charges__charge_master'),
+        pk=pk,
+        company=request.company
+    )
+    return render(request, 'accounting/purchase_invoice_detail.html', {
+        'invoice': invoice
+    })
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def purchase_invoice_create(request):
+    company = request.company
+
+    if request.method == "GET":
+        warehouse = Warehouse.objects.filter(company=company, is_active=True).first()
+        if not warehouse:
+            warehouse = Warehouse.objects.create(
+                company=company,
+                code="WH-MAIN",
+                name="Main Warehouse",
+                is_default=True
+            )
+        return render(request, 'accounting/purchase_invoice_form.html', {
+            'default_warehouse': warehouse,
+        })
+
+    # --- POST Pipeline: Process Purchase Invoice ---
+    data = request.POST
+
+    # 1. Master Validation Checks
+    supplier_id = data.get('supplier_id', '').strip()
+    if not supplier_id:
+        return HttpResponseBadRequest("Invalid submission: A valid registered Supplier must be selected.")
+
+    supplier = get_object_or_404(Supplier, id=supplier_id, company=company, is_active=True)
+    warehouse = Warehouse.objects.filter(company=company, is_active=True).first()
+    if not warehouse:
+        warehouse = Warehouse.objects.create(
+            company=company,
+            code="WH-MAIN",
+            name="Main Warehouse",
+            is_default=True
+        )
+
+    supplier_invoice_no = data.get('supplier_invoice_no', '').strip()
+    supplier_invoice_date = data.get('supplier_invoice_date', '').strip()
+    if not supplier_invoice_no or not supplier_invoice_date:
+        return HttpResponseBadRequest("Supplier Bill Number and Bill Date are required.")
+
+    # 2. Extract Line Items
+    product_ids = data.getlist('product_id[]')
+    qtys = data.getlist('qty[]')
+    rates = data.getlist('rate[]')
+    discounts = data.getlist('discount[]')
+
+    if not product_ids or len(product_ids) == 0:
+        return HttpResponseBadRequest("At least one line item is required.")
+
+    # Extract Other Charges
+    other_charge_ids = data.getlist('other_charge_id[]')
+    other_charge_amounts = data.getlist('other_charge_amount[]')
+
+    # Configurable Statutory Rates
+    VAT_RATE = Decimal('13.00')
+    EXCISE_RATE = Decimal('5.00')
+
+    with transaction.atomic():
+        # A. Calculate Other Charges Total
+        total_other_charges = Decimal('0.00')
+        valid_other_charges = []
+
+        for cid, camt in zip(other_charge_ids, other_charge_amounts):
+            if cid and camt:
+                parsed_amt = Decimal(str(camt or '0')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                if parsed_amt > Decimal('0.00'):
+                    chg_master = get_object_or_404(OtherChargeMaster, id=cid, company=company, is_active=True)
+                    valid_other_charges.append((chg_master, parsed_amt))
+                    total_other_charges += parsed_amt
+
+        # B. Parse and compute Line Items Base
+        line_items_data = []
+        total_gross = Decimal('0.00')
+        total_discount = Decimal('0.00')
+        total_taxable = Decimal('0.00')
+        total_excise = Decimal('0.00')
+        total_vat = Decimal('0.00')
+
+        for pid, q_str, r_str, d_str in zip(product_ids, qtys, rates, discounts):
+            if not pid:
+                return HttpResponseBadRequest("Line item submitted without a verified Master Product ID.")
+
+            product = get_object_or_404(Product, id=pid, company=company, is_active=True)
+            qty = Decimal(str(q_str or '0')).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
+            rate = Decimal(str(r_str or '0')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            discount = Decimal(str(d_str or '0')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+            # Determine product-specific rates from tagged taxes
+            product_taxes = product.taxes.filter(is_active=True)
+            vat_tax = product_taxes.filter(tax_type=TaxType.VAT).first()
+            excise_tax = product_taxes.filter(tax_type=TaxType.EXCISE).first()
+            if not excise_tax:
+                excise_tax = product_taxes.filter(name__icontains='excise').first()
+
+            item_vat_rate = Decimal(str(vat_tax.rate)) if vat_tax else Decimal('0.00')
+            item_excise_rate = Decimal(str(excise_tax.rate)) if excise_tax else Decimal('0.00')
+
+            gross = (qty * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            taxable = max(Decimal('0.00'), gross - discount)
+            excise = (taxable * (item_excise_rate / Decimal('100.00'))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            vat = ((taxable + excise) * (item_vat_rate / Decimal('100.00'))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            line_total = taxable + excise + vat
+
+            total_gross += gross
+            total_discount += discount
+            total_taxable += taxable
+            total_excise += excise
+            total_vat += vat
+
+            line_items_data.append({
+                'product': product,
+                'qty': qty,
+                'rate': rate,
+                'discount': discount,
+                'taxable': taxable,
+                'excise_rate': item_excise_rate,
+                'excise': excise,
+                'vat_rate': item_vat_rate,
+                'vat': vat,
+                'line_total': line_total,
+            })
+
+        # C. Generate Sequential Invoice Number (e.g. PINV-2083-0001)
+        invoice_count = PurchaseInvoice.objects.filter(company=company).count() + 1
+        invoice_number = f"PINV-{invoice_count:05d}"
+
+        # D. Save Purchase Invoice Header
+        grand_total = total_taxable + total_excise + total_vat + total_other_charges
+        total_inventory_landed_cost = total_taxable + total_excise + total_other_charges
+
+        purchase_invoice = PurchaseInvoice.objects.create(
+            company=company,
+            invoice_number=invoice_number,
+            supplier=supplier,
+            supplier_invoice_no=supplier_invoice_no,
+            supplier_invoice_date=supplier_invoice_date,
+            nepali_date="2083-06-11",
+            warehouse=warehouse,
+            gross_amount=total_gross,
+            total_discount=total_discount,
+            taxable_amount=total_taxable,
+            excise_amount=total_excise,
+            vat_amount=total_vat,
+            total_other_charges=total_other_charges,
+            grand_total=grand_total,
+            total_inventory_landed_cost=total_inventory_landed_cost,
+            is_locked=True
+        )
+
+        # E. Persist Other Charges
+        for chg_master, camt in valid_other_charges:
+            PurchaseInvoiceOtherCharge.objects.create(
+                purchase_invoice=purchase_invoice,
+                charge_master=chg_master,
+                amount=camt,
+                remarks=f"Apportioned to {invoice_number}"
+            )
+
+        # F. Persist Items and Write Inward Stock Ledger Entries
+        for item in line_items_data:
+            taxable = item['taxable']
+            qty = item['qty']
+
+            allocated_charge = Decimal('0.0000')
+            if total_taxable > Decimal('0.00'):
+                allocated_charge = (total_other_charges * (taxable / total_taxable)).quantize(
+                    Decimal('0.0001'), rounding=ROUND_HALF_UP
+                )
+
+            landing_cost_total = taxable + item['excise'] + allocated_charge
+            landing_cost_per_unit = (landing_cost_total / qty).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
+
+            PurchaseInvoiceItem.objects.create(
+                purchase_invoice=purchase_invoice,
+                product=item['product'],
+                quantity=qty,
+                rate=item['rate'],
+                discount_amount=item['discount'],
+                excise_rate=item['excise_rate'],
+                excise_amount=item['excise'],
+                vat_rate=item['vat_rate'],
+                vat_amount=item['vat'],
+                total_amount=item['line_total'],
+                allocated_other_charge=allocated_charge,
+                landing_cost_total=landing_cost_total,
+                landing_cost_per_unit=landing_cost_per_unit,
+            )
+
+            # Running balance for stock valuation
+            last_entry = StockLedgerEntry.objects.filter(
+                company=company,
+                product=item['product'],
+                warehouse=warehouse
+            ).order_by('-entry_date', '-created_at').first()
+
+            prev_balance_qty = last_entry.balance_quantity if last_entry else Decimal('0.000')
+            prev_balance_val = last_entry.balance_value if last_entry else Decimal('0.0000')
+
+            new_balance_qty = prev_balance_qty + qty
+            new_balance_val = prev_balance_val + landing_cost_total
+
+            StockLedgerEntry.objects.create(
+                company=company,
+                product=item['product'],
+                warehouse=warehouse,
+                entry_date=supplier_invoice_date,
+                entry_type=StockLedgerEntry.EntryType.PURCHASE,
+                reference_id=purchase_invoice.id,
+                reference_number=invoice_number,
+                in_quantity=qty,
+                out_quantity=Decimal('0.000'),
+                unit_cost=landing_cost_per_unit,
+                balance_quantity=new_balance_qty,
+                balance_value=new_balance_val
+            )
+
+        # G. Auto-Post Balanced Double-Entry Accounting Transaction
+        ym = timezone.now().strftime('%Y%m')
+        jv_count = Transaction.objects.filter(company=company, voucher_number__startswith=f"JV-{ym}").count() + 1
+        jv_number = f"JV-{ym}-{jv_count:04d}"
+
+        txn = Transaction.objects.create(
+            company=company,
+            date=supplier_invoice_date,
+            voucher_number=jv_number,
+            reference=invoice_number,
+            narration=f"Purchase of goods via bill #{supplier_invoice_no} from {supplier.name}"
+        )
+
+        inventory_account, _ = Account.objects.get_or_create(
+            company=company,
+            code='1040',
+            defaults={'name': 'Inventory Stock Asset', 'account_type': AccountType.ASSET}
+        )
+        vat_input_account, _ = Account.objects.get_or_create(
+            company=company,
+            code='1050',
+            defaults={'name': 'VAT Input Tax Receivable', 'account_type': AccountType.ASSET}
+        )
+        ap_account = supplier.ledger_account or Account.objects.filter(company=company, code='2010').first()
+
+        # 1. Debit Inventory Account (at true landing cost)
+        JournalEntry.objects.create(
+            transaction=txn,
+            account=inventory_account,
+            debit=total_inventory_landed_cost,
+            credit=Decimal('0.00'),
+            line_description="Capitalized inventory purchase with landed charges"
+        )
+
+        # 2. Debit VAT Input Tax Account
+        if total_vat > Decimal('0.00'):
+            JournalEntry.objects.create(
+                transaction=txn,
+                account=vat_input_account,
+                debit=total_vat,
+                credit=Decimal('0.00'),
+                line_description="Input VAT credit on purchase"
+            )
+
+        # 3. Credit Supplier Accounts Payable
+        supplier_payable = total_taxable + total_excise + total_vat
+        JournalEntry.objects.create(
+            transaction=txn,
+            account=ap_account,
+            debit=Decimal('0.00'),
+            credit=supplier_payable,
+            line_description=f"Amount payable for bill #{supplier_invoice_no}"
+        )
+
+        # 4. Credit Individual Other Charges Clearing Accounts
+        for chg_master, camt in valid_other_charges:
+            chg_account = chg_master.default_account or ap_account
+            JournalEntry.objects.create(
+                transaction=txn,
+                account=chg_account,
+                debit=Decimal('0.00'),
+                credit=camt,
+                line_description=f"{chg_master.name} applied to {invoice_number}"
+            )
+
+        purchase_invoice.transaction = txn
+        purchase_invoice.save(update_fields=['transaction'])
+
+        # Audit Trail Log
+        AuditLog.objects.create(
+            company=company,
+            user=request.user,
+            username=request.user.username,
+            action="CREATE",
+            table_name="PurchaseInvoice",
+            record_id=str(purchase_invoice.id),
+            ip_address=request.META.get('REMOTE_ADDR'),
+            details=f"Committed Purchase Invoice {invoice_number} from {supplier.name} for Rs. {grand_total}"
+        )
+
+    return redirect('purchase_invoice_detail', pk=purchase_invoice.pk)
+
+# ==============================================================================
+# Supplier Master Views (Matches Customer Master Standards)
+# ==============================================================================
+
+@login_required
+def supplier_list_view(request):
+    suppliers = Supplier.objects.filter(company=request.company).order_by('name')
+    return render(request, 'accounting/supplier_list.html', {'suppliers': suppliers})
+
+
+@login_required
+def supplier_create_edit_view(request, supplier_id=None):
+    comp = request.company
+    supplier = get_object_or_404(Supplier, id=supplier_id, company=comp) if supplier_id else None
+
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        pan = request.POST.get('pan_vat_number', '').strip()
+        contact_person = request.POST.get('contact_person', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        email = request.POST.get('email', '').strip()
+        address = request.POST.get('address', '').strip()
+        is_active = request.POST.get('is_active') == 'on'
+
+        if not name:
+            messages.error(request, "Supplier name is required.")
+            return render(request, 'accounting/supplier_form.html', {'supplier': supplier})
+
+        if not supplier:
+            supplier = Supplier(company=comp)
+
+        supplier.name = name
+        supplier.pan_vat_number = pan
+        supplier.contact_person = contact_person
+        supplier.phone = phone
+        supplier.email = email
+        supplier.address = address
+        supplier.is_active = is_active
+        supplier.save()
+
+        messages.success(request, f"Supplier '{supplier.name}' saved successfully.")
+        return redirect('supplier-list')
+
+    return render(request, 'accounting/supplier_form.html', {'supplier': supplier})
+
+
+@login_required
+@require_POST
+def supplier_delete_view(request, supplier_id):
+    supplier = get_object_or_404(Supplier, id=supplier_id, company=request.company)
+    in_purchases = PurchaseInvoice.objects.filter(supplier=supplier).exists()
+
+    if in_purchases:
+        messages.error(
+            request,
+            f"Cannot delete '{supplier.name}' because purchase invoices are tied to this supplier. "
+            f"To prevent further transactions, please edit and set status to Inactive."
+        )
+        return redirect('supplier-list')
+
+    try:
+        supplier_name = supplier.name
+        supplier.delete()
+        messages.success(request, f"Supplier '{supplier_name}' deleted successfully.")
+    except ProtectedError:
+        messages.error(request, f"Cannot delete '{supplier.name}' due to database integrity constraints.")
+    return redirect('supplier-list')
+
+
+@login_required
+@require_POST
+def quick_create_supplier_api(request):
+    """Allows on-the-fly modal creation from the Purchase Invoice screen."""
+    comp = request.company
+    name = request.POST.get('name', '').strip()
+    pan = request.POST.get('pan_vat_number', '').strip()
+    address = request.POST.get('address', '').strip()
+    phone = request.POST.get('phone', '').strip()
+
+    if not name:
+        return JsonResponse({'status': 'error', 'message': 'Supplier Name is required.'}, status=400)
+
+    sup = Supplier.objects.create(
+        company=comp,
+        name=name,
+        pan_vat_number=pan,
+        address=address,
+        phone=phone,
+        is_active=True
+    )
+
+    return JsonResponse({
+        'status': 'success',
+        'supplier': {
+            'id': str(sup.id),
+            'name': sup.name,
+            'pan': sup.pan_vat_number or 'N/A',
+            'address': sup.address or '-',
+            'display': f"{sup.name} (PAN: {sup.pan_vat_number})"
+        }
+    })
+    
+# ==============================================================================
+# Other Charges Master Views (Freight, Labor, Handling, Clearing Charges)
+# ==============================================================================
+
+@login_required
+def other_charges_list_view(request):
+    charges = OtherChargeMaster.objects.filter(company=request.company).order_by('name')
+    return render(request, 'accounting/other_charges_list.html', {'charges': charges})
+
+
+@login_required
+def other_charges_create_edit_view(request, charge_id=None):
+    comp = request.company
+    charge = get_object_or_404(OtherChargeMaster, id=charge_id, company=comp) if charge_id else None
+    accounts = Account.objects.filter(company=comp, is_active=True).order_by('code')
+
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        code = request.POST.get('code', '').strip().upper()
+        default_account_id = request.POST.get('default_account')
+        is_active = request.POST.get('is_active') == 'on'
+
+        if not name:
+            messages.error(request, "Charge Name is required.")
+            return render(request, 'accounting/other_charges_form.html', {'charge': charge, 'accounts': accounts})
+
+        if not code:
+            # Auto-generate code if empty
+            next_no = OtherChargeMaster.objects.filter(company=comp).count() + 1
+            code = f"CHG-{next_no:03d}"
+
+        default_account = Account.objects.filter(id=default_account_id, company=comp).first() if default_account_id else None
+
+        if not charge:
+            charge = OtherChargeMaster(company=comp)
+
+        charge.name = name
+        charge.code = code
+        charge.default_account = default_account
+        charge.is_active = is_active
+        charge.save()
+
+        messages.success(request, f"Charge '{charge.name}' saved successfully.")
+        return redirect('other-charges-list')
+
+    return render(request, 'accounting/other_charges_form.html', {
+        'charge': charge,
+        'accounts': accounts
+    })
+
+
+@login_required
+@require_POST
+def other_charges_delete_view(request, charge_id):
+    charge = get_object_or_404(OtherChargeMaster, id=charge_id, company=request.company)
+    in_purchases = PurchaseInvoiceOtherCharge.objects.filter(charge_master=charge).exists()
+
+    if in_purchases:
+        messages.error(
+            request,
+            f"Cannot delete '{charge.name}' because purchase invoices have used this charge. "
+            f"Please edit and set status to Inactive instead."
+        )
+        return redirect('other-charges-list')
+
+    try:
+        name = charge.name
+        charge.delete()
+        messages.success(request, f"Charge '{name}' deleted successfully.")
+    except ProtectedError:
+        messages.error(request, f"Cannot delete '{charge.name}' due to database integrity constraints.")
+    return redirect('other-charges-list')
+
+
+@login_required
+@require_POST
+def quick_create_other_charge_api(request):
+    """Allows on-the-fly charge creation directly from the Purchase Invoice form."""
+    comp = request.company
+    name = request.POST.get('name', '').strip()
+    code = request.POST.get('code', '').strip().upper()
+
+    if not name:
+        return JsonResponse({'status': 'error', 'message': 'Charge Name is required.'}, status=400)
+
+    if not code:
+        next_no = OtherChargeMaster.objects.filter(company=comp).count() + 1
+        code = f"CHG-{next_no:03d}"
+
+    # Default to an Accounts Payable / Sundry Creditors ledger or Expense ledger
+    default_acc = Account.objects.filter(company=comp, code='2010').first() or \
+                  Account.objects.filter(company=comp, account_type=AccountType.LIABILITY).first()
+
+    charge = OtherChargeMaster.objects.create(
+        company=comp,
+        name=name,
+        code=code,
+        default_account=default_acc,
+        is_active=True
+    )
+
+    return JsonResponse({
+        'status': 'success',
+        'charge': {
+            'id': str(charge.id),
+            'code': charge.code,
+            'name': charge.name,
+            'display': f"{charge.name} ({charge.code})"
+        }
+    })

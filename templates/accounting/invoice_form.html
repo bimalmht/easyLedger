@@ -1,8 +1,28 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}Create Tax Invoice - EasyLedger{% endblock %}
 
 {% block content %}
+<style>
+  input[type=number]::-webkit-inner-spin-button, 
+  input[type=number]::-webkit-outer-spin-button { 
+    -webkit-appearance: none; 
+    margin: 0; 
+  }
+  input[type=number] {
+    -moz-appearance: textfield;
+  }
+</style>
+
+<!-- Hidden element passing server configurations to external JS -->
+<div id="sales-invoice-config" class="hidden"
+     data-allow-quick-customer="{{ settings.allow_quick_customer_creation|yesno:'true,false' }}"
+     data-allow-quick-product="{{ settings.allow_quick_product_creation|yesno:'true,false' }}"
+     data-enable-free="{{ settings.enable_free_item_discount|yesno:'true,false' }}"
+     data-enable-promo="{{ settings.enable_promotions|yesno:'true,false' }}">
+</div>
+
 <div class="max-w-5xl mx-auto bg-white rounded-xl border border-slate-200 shadow-sm p-6">
   <div class="flex justify-between items-center mb-4 pb-2 border-b border-slate-200">
     <h1 class="text-xl font-bold text-slate-900">New Sales Tax Invoice</h1>
@@ -15,7 +35,7 @@
     <!-- Top Fields: Customer Search & Dates -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div class="relative">
-        <label class="block font-semibold text-slate-700 mb-1">Customer (Search or Click to Browse)</label>
+        <label class="block font-semibold text-slate-700 mb-1">Customer (Search or Click to Browse) *</label>
         <input type="text" id="customerSearchInput" placeholder="Click to choose or type name/PAN..." autocomplete="off" class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
         <input type="hidden" name="customer_id" id="selectedCustomerId" required>
         <div id="customerResults" class="hidden absolute left-0 right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-2xl z-50 max-h-56 overflow-y-auto"></div>
@@ -24,12 +44,12 @@
       </div>
 
       <div>
-        <label class="block font-semibold text-slate-700 mb-1">Invoice Date</label>
-        <input type="date" name="date" value="{% now 'Y-m-d' %}" required class="w-full border border-slate-300 rounded-lg p-2.5">
+        <label class="block font-semibold text-slate-700 mb-1">Invoice Date *</label>
+        <input type="date" name="date" value="{% now 'Y-m-d' %}" required class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
       </div>
       <div>
         <label class="block font-semibold text-slate-700 mb-1">Payment Due Date</label>
-        <input type="date" name="due_date" class="w-full border border-slate-300 rounded-lg p-2.5">
+        <input type="date" name="due_date" class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
       </div>
     </div>
 
@@ -43,10 +63,10 @@
       <table class="w-full border border-slate-200 rounded-lg" id="itemsTable">
         <thead class="bg-slate-50 border-b border-slate-200 font-bold text-slate-700">
           <tr>
-            <th class="p-2 text-left w-2/5">Item / Product (Click or type to search)</th>
+            <th class="p-2 text-left w-72">Item / Product (Click or type to search) *</th>
             <th class="p-2 text-left w-20">HS Code</th>
-            <th class="p-2 text-right w-20">Qty</th>
-            <th class="p-2 text-right w-24">Rate (Rs.)</th>
+            <th class="p-2 text-right w-24">Qty</th>
+            <th class="p-2 text-right w-28">Rate (Rs.)</th>
             {% if settings.enable_free_item_discount %}
               <th class="p-2 text-center w-24">100% Free</th>
             {% endif %}
@@ -54,7 +74,7 @@
               <th class="p-2 text-left w-36">Promotion Note</th>
             {% endif %}
             <th class="p-2 text-right w-24">Amount</th>
-            <th class="p-2 text-center w-10"></th>
+            <th class="p-2 text-center w-8"></th>
           </tr>
         </thead>
         <tbody id="itemsBody" class="divide-y divide-slate-100 font-mono">
@@ -69,10 +89,10 @@
         <div class="flex items-center gap-4 mb-3">
           <span class="font-bold text-slate-700">Enable Discounts:</span>
           {% if settings.enable_percent_discount %}
-            <label class="flex items-center gap-1"><input type="checkbox" id="enablePct" onchange="toggleDiscountFields()"> % Discount</label>
+            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="enablePct" onchange="toggleDiscountFields()"> % Discount</label>
           {% endif %}
           {% if settings.enable_value_discount %}
-            <label class="flex items-center gap-1"><input type="checkbox" id="enableVal" onchange="toggleDiscountFields()"> Value Discount</label>
+            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="enableVal" onchange="toggleDiscountFields()"> Value Discount</label>
           {% endif %}
         </div>
 
@@ -95,27 +115,30 @@
 
     <!-- Totals Summary -->
     <div class="flex justify-end">
-      <div class="w-80 space-y-1.5 font-mono text-xs border border-slate-200 p-4 rounded-xl bg-white">
+      <div class="w-80 space-y-1.5 font-mono text-xs border border-slate-200 p-4 rounded-xl bg-white shadow-2xs">
         <div class="flex justify-between"><span>Gross Subtotal:</span><span id="displayGross">0.00</span></div>
-        <div class="flex justify-between text-rose-600"><span>% Discount:</span><span id="displayPctAmt">0.00</span></div>
-        <div class="flex justify-between text-rose-600"><span>Value Discount:</span><span id="displayValAmt">0.00</span></div>
-        <div class="flex justify-between text-rose-600"><span>FREE Item Discount:</span><span id="displayFreeAmt">0.00</span></div>
-        <div class="flex justify-between font-bold border-t pt-1"><span>Total Discount:</span><span id="displayTotalDiscount">0.00</span></div>
+        <div class="flex justify-between text-rose-600"><span>% Discount:</span><span id="displayPctAmt">-0.00</span></div>
+        <div class="flex justify-between text-rose-600"><span>Value Discount:</span><span id="displayValAmt">-0.00</span></div>
+        <div class="flex justify-between text-rose-600"><span>FREE Item Discount:</span><span id="displayFreeAmt">-0.00</span></div>
+        <div class="flex justify-between font-bold border-t pt-1"><span>Total Discount:</span><span id="displayTotalDiscount">-0.00</span></div>
         <div class="flex justify-between font-semibold border-t pt-1"><span>Taxable Subtotal:</span><span id="displayTaxable">0.00</span></div>
         <div class="flex justify-between"><span>VAT (<span id="appliedTaxRate">13</span>%):</span><span id="displayTax">0.00</span></div>
         <div class="flex justify-between font-bold text-sm text-indigo-600 border-t pt-1"><span>Grand Total:</span><span id="displayGrand">0.00</span></div>
       </div>
     </div>
 
+    <!-- Bottom Action Buttons -->
     <div class="flex justify-end gap-2 pt-4 border-t border-slate-200">
       <a href="{% url 'invoice-list' %}" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</a>
-      <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm">Save & Issue Tax Invoice</button>
+      <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm">
+        Save & Issue Tax Invoice
+      </button>
     </div>
   </form>
 </div>
 
 <!-- ========================================================================= -->
-<!-- Standalone Quick Customer Modal (OUTSIDE INVOICE FORM) -->
+<!-- Quick Customer Modal                                                      -->
 <!-- ========================================================================= -->
 <div id="customerModal" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
   <div class="bg-white rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
@@ -149,7 +172,7 @@
 </div>
 
 <!-- ========================================================================= -->
-<!-- Standalone Quick Product Modal (OUTSIDE INVOICE FORM) -->
+<!-- Quick Product Modal                                                       -->
 <!-- ========================================================================= -->
 <div id="productModal" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
   <div class="bg-white rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
@@ -179,469 +202,8 @@
     </form>
   </div>
 </div>
+{% endblock %}
 
-<script>
-const allowQuickCustomer = {{ settings.allow_quick_customer_creation|yesno:"true,false" }};
-const allowQuickProduct = {{ settings.allow_quick_product_creation|yesno:"true,false" }};
-const enableFree = {{ settings.enable_free_item_discount|yesno:"true,false" }};
-const enablePromo = {{ settings.enable_promotions|yesno:"true,false" }};
-let targetRowForNewProduct = null;
-
-// =============================================================================
-// Customer Search & Tab/Blur Immediate Validation
-// =============================================================================
-const custInput = document.getElementById('customerSearchInput');
-const custResults = document.getElementById('customerResults');
-const custId = document.getElementById('selectedCustomerId');
-const custMeta = document.getElementById('customerMeta');
-const custErr = document.getElementById('customerError');
-let confirmedCustomerName = "";
-
-function fetchAndRenderCustomers(query = '') {
-  fetch(`/api/customers/search/?q=${encodeURIComponent(query)}`)
-    .then(r => r.json())
-    .then(data => {
-      custResults.innerHTML = '';
-      let hasExactMatch = false;
-
-      if (data.results && data.results.length > 0) {
-        data.results.forEach(c => {
-          if (c.name.trim().toLowerCase() === query.trim().toLowerCase()) {
-            hasExactMatch = true;
-          }
-          const div = document.createElement('div');
-          div.className = 'p-2.5 hover:bg-slate-100 cursor-pointer border-b border-slate-100 transition-colors';
-          div.innerHTML = `<div class="font-bold text-slate-800">${c.name}</div><div class="text-[11px] text-slate-500 font-mono">PAN: ${c.tax_number} | ${c.address}</div>`;
-          div.onclick = () => {
-            selectCustomer(c);
-            custResults.classList.add('hidden');
-          };
-          custResults.appendChild(div);
-        });
-      }
-
-      if (query && !hasExactMatch && allowQuickCustomer) {
-        const createDiv = document.createElement('div');
-        createDiv.className = 'p-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold cursor-pointer text-xs border-t border-indigo-200 flex items-center justify-between';
-        createDiv.innerHTML = `<span>+ Create new customer "<strong>${query}</strong>" in Master</span><span class="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded">Quick Add</span>`;
-        createDiv.onclick = () => {
-          custResults.classList.add('hidden');
-          openCustomerModal(query);
-        };
-        custResults.appendChild(createDiv);
-      } else if (!data.results || data.results.length === 0) {
-        custResults.innerHTML = '<div class="p-3 text-slate-400">No customers found</div>';
-      }
-
-      custResults.classList.remove('hidden');
-    });
-}
-
-custInput.addEventListener('focus', function() {
-  fetchAndRenderCustomers(this.value.trim());
-});
-
-custInput.addEventListener('input', function() {
-  const currentVal = this.value.trim();
-  if (currentVal !== confirmedCustomerName) {
-    custId.value = '';
-    custMeta.innerText = '';
-  }
-  fetchAndRenderCustomers(currentVal);
-});
-
-// =============================================================================
-// Customer Blur & Focus: Hide Dropdown & Show Error
-// =============================================================================
-custInput.addEventListener('blur', function() {
-  // Give 200ms grace period so clicking on the dropdown itself registers
-  setTimeout(() => {
-    // 1. Immediately hide the dropdown so it NEVER overlaps the error message below
-    custResults.classList.add('hidden');
-
-    // 2. Validate against Master
-    const val = this.value.trim();
-    if (val && (!custId.value || val !== confirmedCustomerName)) {
-      this.classList.add('border-rose-500', 'bg-rose-50');
-      custErr.innerText = "Customer not registered in Master. Select from list or create new.";
-      custErr.classList.remove('hidden');
-    } else {
-      this.classList.remove('border-rose-500', 'bg-rose-50');
-      custErr.classList.add('hidden');
-    }
-  }, 200);
-});
-
-// Re-open dropdown when clicking/focusing back on input
-custInput.addEventListener('focus', function() {
-  fetchAndRenderCustomers(this.value.trim());
-});
-
-function selectCustomer(c) {
-  custInput.value = c.name;
-  confirmedCustomerName = c.name;
-  custId.value = c.id;
-  custMeta.innerText = `PAN: ${c.tax_number} | Address: ${c.address}`;
-  custErr.classList.add('hidden');
-  custInput.classList.remove('border-rose-500', 'bg-rose-50');
-}
-
-function openCustomerModal(prefillName = '') {
-  document.getElementById('modalCustName').value = prefillName;
-  document.getElementById('customerModal').classList.remove('hidden');
-  if (prefillName) {
-    document.getElementById('modalCustPan').focus();
-  } else {
-    document.getElementById('modalCustName').focus();
-  }
-}
-
-function closeCustomerModal() {
-  document.getElementById('customerModal').classList.add('hidden');
-  document.getElementById('quickCustomerForm').reset();
-}
-
-function submitQuickCustomer(e) {
-  e.preventDefault();
-  const btn = document.getElementById('btnSaveCust');
-  btn.disabled = true;
-  btn.innerText = 'Saving...';
-
-  const formData = new FormData();
-  formData.append('name', document.getElementById('modalCustName').value.trim());
-  formData.append('tax_number', document.getElementById('modalCustPan').value.trim());
-  formData.append('address', document.getElementById('modalCustAddress').value.trim());
-  formData.append('phone', document.getElementById('modalCustPhone').value.trim());
-
-  fetch('/api/customers/quick-create/', {
-    method: 'POST',
-    headers: { 'X-CSRFToken': '{{ csrf_token }}' },
-    body: formData
-  })
-  .then(r => r.json())
-  .then(res => {
-    btn.disabled = false;
-    btn.innerText = 'Save to Master & Select';
-    if (res.status === 'success') {
-      selectCustomer(res.customer);
-      closeCustomerModal();
-    } else {
-      alert(res.message);
-    }
-  })
-  .catch(err => {
-    btn.disabled = false;
-    btn.innerText = 'Save to Master & Select';
-    alert("Failed to connect to server: " + err);
-  });
-}
-
-// =============================================================================
-// Product Search & Tab/Blur Immediate Validation
-// =============================================================================
-function openProductModal(prefillName = '', trElement = null) {
-  targetRowForNewProduct = trElement;
-  document.getElementById('modalProdName').value = prefillName;
-  document.getElementById('productModal').classList.remove('hidden');
-  if (prefillName) {
-    document.getElementById('modalProdPrice').focus();
-  } else {
-    document.getElementById('modalProdName').focus();
-  }
-}
-
-function closeProductModal() {
-  document.getElementById('productModal').classList.add('hidden');
-  document.getElementById('quickProductForm').reset();
-  targetRowForNewProduct = null;
-}
-
-function submitQuickProduct(e) {
-  e.preventDefault();
-  const btn = document.getElementById('btnSaveProd');
-  btn.disabled = true;
-  btn.innerText = 'Saving...';
-
-  const formData = new FormData();
-  formData.append('name', document.getElementById('modalProdName').value.trim());
-  formData.append('hs_code', document.getElementById('modalProdHs').value.trim());
-  formData.append('selling_price', document.getElementById('modalProdPrice').value.trim());
-
-  fetch('/api/products/quick-create/', {
-    method: 'POST',
-    headers: { 'X-CSRFToken': '{{ csrf_token }}' },
-    body: formData
-  })
-  .then(r => r.json())
-  .then(res => {
-    btn.disabled = false;
-    btn.innerText = 'Save to Master & Use';
-    if (res.status === 'success') {
-      const p = res.product;
-      let targetRow = targetRowForNewProduct;
-
-      if (!targetRow) {
-        const rows = document.querySelectorAll('#itemsBody tr');
-        for (let r of rows) {
-          if (!r.querySelector('.productId').value) {
-            targetRow = r;
-            break;
-          }
-        }
-        if (!targetRow) {
-          addInvoiceRow();
-          const allRows = document.querySelectorAll('#itemsBody tr');
-          targetRow = allRows[allRows.length - 1];
-        }
-      }
-
-      applyProductToRow(p, targetRow);
-      closeProductModal();
-    } else {
-      alert(res.message);
-    }
-  })
-  .catch(err => {
-    btn.disabled = false;
-    btn.innerText = 'Save to Master & Use';
-    alert("Failed to connect to server: " + err);
-  });
-}
-
-function applyProductToRow(p, tr) {
-  const pInput = tr.querySelector('.productSearch');
-  const pErr = tr.querySelector('.productError');
-  pInput.value = p.name;
-  pInput.dataset.confirmedName = p.name;
-  pInput.classList.remove('border-rose-500', 'bg-rose-50');
-  if (pErr) pErr.classList.add('hidden');
-
-  tr.querySelector('.productId').value = p.id;
-  tr.querySelector('.productDesc').value = p.name;
-  tr.querySelector('.price').value = p.unit_price;
-  tr.querySelector('.hsCode').value = p.hs_code;
-  calculateTotals();
-}
-
-function addInvoiceRow() {
-  const tbody = document.getElementById('itemsBody');
-  const tr = document.createElement('tr');
-  tr.className = 'border-b border-slate-100';
-  tr.innerHTML = `
-    <td class="p-2 relative overflow-visible">
-      <input type="text" placeholder="Click to choose or type..." autocomplete="off" class="productSearch w-full border border-slate-300 rounded p-1.5 text-xs focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-      <input type="hidden" name="product_id[]" class="productId">
-      <input type="hidden" name="description[]" class="productDesc">
-      <p class="productError hidden text-[10.5px] text-rose-600 font-semibold mt-0.5 leading-tight"></p>
-      <div class="productDropdown hidden absolute left-0 top-full mt-1 w-80 bg-white border border-slate-300 rounded-lg shadow-2xl z-50 max-h-56 overflow-y-auto"></div>
-    </td>
-    <td class="p-2"><input type="text" name="hs_code[]" class="hsCode w-full border border-slate-300 rounded p-1.5 text-xs text-center" value="-"></td>
-    <td class="p-2"><input type="number" step="0.01" name="quantity[]" value="1.00" oninput="calculateTotals()" class="qty w-full border border-slate-300 rounded p-1.5 text-xs text-right font-mono"></td>
-    <td class="p-2"><input type="number" step="0.01" name="unit_price[]" value="0.00" oninput="calculateTotals()" class="price w-full border border-slate-300 rounded p-1.5 text-xs text-right font-mono"></td>
-    ${enableFree ? `
-      <td class="p-2 text-center">
-        <input type="checkbox" onchange="this.nextElementSibling.value = this.checked ? '1' : '0'; calculateTotals();" class="freeCheck rounded text-indigo-600">
-        <input type="hidden" name="is_free[]" value="0">
-      </td>
-    ` : `<input type="hidden" name="is_free[]" value="0">`}
-    ${enablePromo ? `
-      <td class="p-2"><input type="text" name="promo_badge[]" placeholder="e.g. Pilot Pen Free" class="w-full border border-slate-300 rounded p-1.5 text-xs font-sans"></td>
-    ` : `<input type="hidden" name="promo_badge[]" value="">`}
-    <td class="p-2 text-right font-mono lineAmount">0.00</td>
-    <td class="p-2 text-center"><button type="button" onclick="this.closest('tr').remove(); calculateTotals();" class="text-rose-500 font-bold hover:text-rose-700">&times;</button></td>
-  `;
-  tbody.appendChild(tr);
-  bindProductSearch(tr);
-}
-
-function bindProductSearch(tr) {
-  const pInput = tr.querySelector('.productSearch');
-  const pDropdown = tr.querySelector('.productDropdown');
-  const pId = tr.querySelector('.productId');
-  const pErr = tr.querySelector('.productError');
-
-  function fetchAndRenderProducts(q = '') {
-    fetch(`/api/products/search/?q=${encodeURIComponent(q)}`)
-      .then(r => r.json())
-      .then(data => {
-        pDropdown.innerHTML = '';
-        let hasExactMatch = false;
-
-        if (data.results && data.results.length > 0) {
-          data.results.forEach(p => {
-            if (p.name.trim().toLowerCase() === q.trim().toLowerCase()) {
-              hasExactMatch = true;
-            }
-            const itemDiv = document.createElement('div');
-            itemDiv.className = 'p-2.5 hover:bg-slate-100 cursor-pointer border-b border-slate-100 text-[11px] transition-colors';
-            itemDiv.innerHTML = `<div class="font-bold text-slate-800">${p.name}</div><div class="text-slate-500 font-mono">Rs. ${p.unit_price} | ${p.tax_name}</div>`;
-            itemDiv.onclick = () => {
-              applyProductToRow(p, tr);
-              pDropdown.classList.add('hidden');
-            };
-            pDropdown.appendChild(itemDiv);
-          });
-        }
-
-        if (q && !hasExactMatch && allowQuickProduct) {
-          const createDiv = document.createElement('div');
-          createDiv.className = 'p-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold cursor-pointer text-xs border-t border-indigo-200 flex items-center justify-between';
-          createDiv.innerHTML = `<span>+ Create "<strong>${q}</strong>" in Master</span><span class="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded">Quick Add</span>`;
-          createDiv.onclick = () => {
-            pDropdown.classList.add('hidden');
-            openProductModal(q, tr);
-          };
-          pDropdown.appendChild(createDiv);
-        } else if (!data.results || data.results.length === 0) {
-          pDropdown.innerHTML = '<div class="p-3 text-slate-400">No products found</div>';
-        }
-
-        pDropdown.classList.remove('hidden');
-      });
-  }
-
-  pInput.addEventListener('focus', function() {
-    fetchAndRenderProducts(this.value.trim());
-  });
-
-  pInput.addEventListener('input', function() {
-    const currentVal = this.value.trim();
-    if (currentVal !== (pInput.dataset.confirmedName || '')) {
-      pId.value = '';
-    }
-    fetchAndRenderProducts(currentVal);
-  });
-
-  // =============================================================================
-  // Product Blur & Focus: Hide Dropdown & Show Error
-  // =============================================================================
-  pInput.addEventListener('blur', function() {
-    setTimeout(() => {
-      // 1. Immediately hide product dropdown on Tab/blur to reveal error message
-      pDropdown.classList.add('hidden');
-
-      // 2. Validate against Master
-      const val = this.value.trim();
-      if (val && (!pId.value || val !== (this.dataset.confirmedName || ''))) {
-        this.classList.add('border-rose-500', 'bg-rose-50');
-        pErr.innerText = "Product not registered in Master. Select from list or create new.";
-        pErr.classList.remove('hidden');
-      } else {
-        this.classList.remove('border-rose-500', 'bg-rose-50');
-        pErr.classList.add('hidden');
-      }
-    }, 200);
-  });
-
-  pInput.addEventListener('focus', function() {
-    fetchAndRenderProducts(this.value.trim());
-  });
-}
-
-// Close dropdowns on outside click
-document.addEventListener('click', function(e) {
-  if (!e.target.closest('#customerSearchInput') && !e.target.closest('#customerResults')) {
-    custResults.classList.add('hidden');
-  }
-  document.querySelectorAll('#itemsBody tr').forEach(tr => {
-    if (!tr.contains(e.target)) {
-      const dd = tr.querySelector('.productDropdown');
-      if (dd) dd.classList.add('hidden');
-    }
-  });
-});
-
-// Final submit validation
-function validateBeforeSubmit(e) {
-  if (!custId.value || custInput.value.trim() !== confirmedCustomerName) {
-    e.preventDefault();
-    custInput.classList.add('border-rose-500', 'bg-rose-50');
-    custErr.innerText = "Customer not registered in Master. Select from list or click '+ Create new customer'.";
-    custErr.classList.remove('hidden');
-    custInput.focus();
-    return false;
-  }
-
-  const rows = document.querySelectorAll('#itemsBody tr');
-  let hasValidRow = false;
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const pInput = row.querySelector('.productSearch');
-    const pId = row.querySelector('.productId');
-    const pErr = row.querySelector('.productError');
-    const pVal = pInput.value.trim();
-
-    if (pVal) {
-      if (!pId.value || pVal !== (pInput.dataset.confirmedName || '')) {
-        e.preventDefault();
-        pInput.classList.add('border-rose-500', 'bg-rose-50');
-        pErr.innerText = "Product not registered in Master. Select from list or click '+ Create in Master'.";
-        pErr.classList.remove('hidden');
-        pInput.focus();
-        return false;
-      }
-      hasValidRow = true;
-    }
-  }
-
-  if (!hasValidRow) {
-    e.preventDefault();
-    alert("Please add at least one registered product from the Master.");
-    return false;
-  }
-
-  return true;
-}
-
-function toggleDiscountFields() {
-  const pctBox = document.getElementById('enablePct');
-  const valBox = document.getElementById('enableVal');
-  if (pctBox) document.getElementById('pctFieldContainer').classList.toggle('hidden', !pctBox.checked);
-  if (valBox) document.getElementById('valFieldContainer').classList.toggle('hidden', !valBox.checked);
-  calculateTotals();
-}
-
-function calculateTotals() {
-  let grossSubtotal = 0;
-  let freeTotal = 0;
-
-  document.querySelectorAll('#itemsBody tr').forEach(row => {
-    const qty = parseFloat(row.querySelector('.qty').value) || 0;
-    const price = parseFloat(row.querySelector('.price').value) || 0;
-    const isFree = row.querySelector('.freeCheck') ? row.querySelector('.freeCheck').checked : false;
-    const amt = qty * price;
-
-    row.querySelector('.lineAmount').innerText = amt.toFixed(2);
-    if (isFree) {
-      freeTotal += amt;
-    } else {
-      grossSubtotal += amt;
-    }
-  });
-
-  const pctBox = document.getElementById('enablePct');
-  const valBox = document.getElementById('enableVal');
-  const pctRate = (pctBox && pctBox.checked) ? (parseFloat(document.getElementById('percentDiscountRate').value) || 0) : 0;
-  const valDiscount = (valBox && valBox.checked) ? (parseFloat(document.getElementById('valueDiscountAmount').value) || 0) : 0;
-
-  const pctAmt = (grossSubtotal * (pctRate / 100));
-  const totalDiscount = pctAmt + valDiscount + freeTotal;
-  const taxable = Math.max(0, grossSubtotal - (pctAmt + valDiscount));
-  const taxRate = 13.0;
-  const taxAmt = taxable * (taxRate / 100);
-  const grand = taxable + taxAmt;
-
-  document.getElementById('displayGross').innerText = grossSubtotal.toFixed(2);
-  document.getElementById('displayPctAmt').innerText = pctAmt.toFixed(2);
-  document.getElementById('displayValAmt').innerText = valDiscount.toFixed(2);
-  document.getElementById('displayFreeAmt').innerText = freeTotal.toFixed(2);
-  document.getElementById('displayTotalDiscount').innerText = totalDiscount.toFixed(2);
-  document.getElementById('displayTaxable').innerText = taxable.toFixed(2);
-  document.getElementById('displayTax').innerText = taxAmt.toFixed(2);
-  document.getElementById('displayGrand').innerText = grand.toFixed(2);
-}
-
-document.addEventListener('DOMContentLoaded', () => addInvoiceRow());
-</script>
+{% block extra_js %}
+<script src="{% static 'js/sales_invoice.js' %}"></script>
 {% endblock %}
