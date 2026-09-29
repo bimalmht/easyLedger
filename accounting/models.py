@@ -1,6 +1,7 @@
 import uuid
 from decimal import Decimal
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
@@ -215,6 +216,8 @@ class Supplier(models.Model):
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=25, blank=True)
     address = models.CharField(max_length=255)
+    is_vat_exempt = models.BooleanField(default=False, verbose_name="VAT Exempt Entity")
+    applicable_taxes = models.ManyToManyField('TaxConfiguration', blank=True, related_name="suppliers")
     ledger_account = models.ForeignKey(
         Account,
         on_delete=models.PROTECT,
@@ -311,8 +314,16 @@ class Invoice(models.Model):
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="invoices")
     invoice_number = models.CharField(max_length=50)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="invoices")
-    date = models.DateField()
+    
+    # Standardized Dates: date (canonical legacy field) & invoice_date_bs
+    date = models.DateField(default=timezone.now, db_index=True)
     due_date = models.DateField(null=True, blank=True)
+    invoice_date_bs = models.CharField(
+        max_length=10, 
+        blank=True, 
+        verbose_name="Invoice Date (BS)",
+        help_text="Format: YYYY-MM-DD"
+    )
 
     # Subtotals & Discounts
     gross_subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
@@ -335,6 +346,15 @@ class Invoice(models.Model):
         blank=True,
         related_name="invoice",
     )
+
+    # Backwards-compatibility property alias: invoice.invoice_date points to invoice.date
+    @property
+    def invoice_date(self):
+        return self.date
+
+    @invoice_date.setter
+    def invoice_date(self, value):
+        self.date = value
 
     # IRD Audit & Immutability Fields
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="created_invoices", null=True, blank=True)
@@ -377,7 +397,13 @@ class PurchaseInvoice(models.Model):
     invoice_number = models.CharField(max_length=100, db_index=True)
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="purchase_invoices")
     supplier_invoice_no = models.CharField(max_length=100)
-    supplier_invoice_date = models.DateField()
+    supplier_invoice_date = models.DateField(db_index=True)
+    supplier_invoice_date_bs = models.CharField(
+        max_length=10, 
+        blank=True, 
+        verbose_name="Supplier Bill Date (BS)",
+        help_text="Format: YYYY-MM-DD"
+    )
     nepali_date = models.CharField(max_length=10, blank=True)
     warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="purchases")
 
@@ -458,7 +484,8 @@ class CreditNote(models.Model):
     credit_note_number = models.CharField(max_length=50)
     original_invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="credit_notes")
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="credit_notes")
-    date = models.DateField()
+    date = models.DateField(default=timezone.now)
+    credit_note_date_bs = models.CharField(max_length=10, blank=True)
     reason = models.CharField(max_length=50, choices=RETURN_REASONS, default="GOODS_RETURN")
     reason_details = models.TextField(blank=True)
 

@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block title %}Purchase Register (Schedule 7) - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="w-full max-w-7xl mx-auto px-4 py-6 text-xs">
+  <div class="flex justify-between items-center mb-4">
+    <div>
+      <h1 class="text-lg font-bold text-slate-900">Purchase Register (अनुसूची ७ - खरिद खाता)</h1>
+      <!-- Fixed: company.pan_number instead of tax_number -->
+      <p class="text-slate-500 font-mono text-[11px]">{{ request.company.name }} | PAN: {{ request.company.pan_number|default:"N/A" }}</p>
+    </div>
+    <div class="flex gap-2">
+      <button onclick="window.print()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-semibold transition-colors">Print</button>
+      <button onclick="exportTableToExcel('purchaseRegisterTable', 'Purchase_Register_Schedule_7')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold transition-colors flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        Export to Excel
+      </button>
+    </div>
+  </div>
+
+  <!-- Filter Bar -->
+  <form method="GET" class="flex gap-2 mb-4 bg-white p-3 rounded-lg border border-slate-200">
+    <div class="flex items-center gap-1">
+      <label class="font-semibold text-slate-600">From:</label>
+      <input type="date" name="from_date" value="{{ from_date }}" class="border rounded p-1.5 font-mono">
+    </div>
+    <div class="flex items-center gap-1">
+      <label class="font-semibold text-slate-600">To:</label>
+      <input type="date" name="to_date" value="{{ to_date }}" class="border rounded p-1.5 font-mono">
+    </div>
+    <button type="submit" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded">Filter</button>
+  </form>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-xs">
+    <table class="w-full text-left border-collapse" id="purchaseRegisterTable">
+      <thead class="bg-slate-50 text-[10px] font-bold text-slate-700 border-b">
+        <tr>
+          <th class="p-2">Bill Date (BS)</th>
+          <th class="p-2">Bill Date (AD)</th>
+          <th class="p-2">Supplier Bill No</th>
+          <th class="p-2">Supplier Name</th>
+          <th class="p-2">Supplier PAN</th>
+          <th class="p-2 text-right">Taxable (Rs.)</th>
+          <th class="p-2 text-right">Excise (Rs.)</th>
+          <th class="p-2 text-right">VAT (13%)</th>
+          <th class="p-2 text-right">Other Charges</th>
+          <th class="p-2 text-right">Grand Total (Rs.)</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 font-mono text-[11px]">
+        {% for p in purchases %}
+        <tr class="hover:bg-slate-50">
+          <td class="p-2 font-bold">{{ p.supplier_invoice_date_bs|default:p.nepali_date|default:"-" }}</td>
+          <td class="p-2 text-slate-500">{{ p.supplier_invoice_date|date:"Y-m-d" }}</td>
+          <td class="p-2 font-bold text-indigo-600">{{ p.supplier_invoice_no }}</td>
+          <td class="p-2 font-sans">{{ p.supplier.name }}</td>
+          <td class="p-2">{{ p.supplier.pan_vat_number|default:"N/A" }}</td>
+          <td class="p-2 text-right">{{ p.taxable_amount|floatformat:2 }}</td>
+          <td class="p-2 text-right">{{ p.excise_amount|floatformat:2 }}</td>
+          <td class="p-2 text-right">{{ p.vat_amount|floatformat:2 }}</td>
+          <td class="p-2 text-right">{{ p.total_other_charges|floatformat:2 }}</td>
+          <td class="p-2 text-right font-bold text-slate-900">{{ p.grand_total|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="10" class="p-4 text-center text-slate-400 italic">No purchase transactions recorded for the selected period.</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="bg-slate-50 border-t-2 border-slate-300 font-mono font-bold text-[11px]">
+        <tr>
+          <td colspan="5" class="p-2 text-right font-sans">Total:</td>
+          <td class="p-2 text-right">{{ totals.total_taxable|default:"0.00"|floatformat:2 }}</td>
+          <td class="p-2 text-right">{{ totals.total_excise|default:"0.00"|floatformat:2 }}</td>
+          <td class="p-2 text-right">{{ totals.total_vat|default:"0.00"|floatformat:2 }}</td>
+          <td class="p-2 text-right">{{ totals.total_other_charges|default:"0.00"|floatformat:2 }}</td>
+          <td class="p-2 text-right text-indigo-700">{{ totals.total_grand|default:"0.00"|floatformat:2 }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<script>
+function exportTableToExcel(tableId, filename) {
+  const table = document.getElementById(tableId);
+  const wb = XLSX.utils.table_to_book(table, { sheet: "Sheet1" });
+  XLSX.writeFile(wb, `${filename}.xlsx`);
+}
+</script>
+{% endblock %}

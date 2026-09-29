@@ -54,33 +54,35 @@ function fetchAndRenderSuppliers(query = '') {
     .catch(err => console.error("Supplier Search error:", err));
 }
 
-supInput.addEventListener('focus', function() {
-  fetchAndRenderSuppliers(this.value.trim());
-});
+if (supInput) {
+  supInput.addEventListener('focus', function() {
+    fetchAndRenderSuppliers(this.value.trim());
+  });
 
-supInput.addEventListener('input', function() {
-  const currentVal = this.value.trim();
-  if (currentVal !== confirmedSupplierName) {
-    supId.value = '';
-    supMeta.innerText = '';
-  }
-  fetchAndRenderSuppliers(currentVal);
-});
-
-supInput.addEventListener('blur', function() {
-  setTimeout(() => {
-    supResults.classList.add('hidden');
-    const val = this.value.trim();
-    if (val && (!supId.value || val !== confirmedSupplierName)) {
-      this.classList.add('border-rose-500', 'bg-rose-50');
-      supErr.innerText = "Supplier not registered in Master. Select from list or create new.";
-      supErr.classList.remove('hidden');
-    } else {
-      this.classList.remove('border-rose-500', 'bg-rose-50');
-      supErr.classList.add('hidden');
+  supInput.addEventListener('input', function() {
+    const currentVal = this.value.trim();
+    if (currentVal !== confirmedSupplierName) {
+      supId.value = '';
+      supMeta.innerText = '';
     }
-  }, 200);
-});
+    fetchAndRenderSuppliers(currentVal);
+  });
+
+  supInput.addEventListener('blur', function() {
+    setTimeout(() => {
+      supResults.classList.add('hidden');
+      const val = this.value.trim();
+      if (val && (!supId.value || val !== confirmedSupplierName)) {
+        this.classList.add('border-rose-500', 'bg-rose-50');
+        supErr.innerText = "Supplier not registered in Master. Select from list or create new.";
+        supErr.classList.remove('hidden');
+      } else {
+        this.classList.remove('border-rose-500', 'bg-rose-50');
+        supErr.classList.add('hidden');
+      }
+    }, 200);
+  });
+}
 
 function selectSupplier(s) {
   supInput.value = s.name;
@@ -108,15 +110,39 @@ function closeSupplierModal() {
 
 function submitQuickSupplier(e) {
   e.preventDefault();
+  const panInput = document.getElementById('modalSupPan');
+  const panVal = panInput.value.trim();
+  const panErr = document.getElementById('modalSupPanErr');
+
+  if (!/^\d{9}$/.test(panVal)) {
+    panInput.classList.add('border-rose-500', 'bg-rose-50');
+    if (panErr) {
+      panErr.innerText = "PAN / VAT must be exactly 9 numeric digits.";
+      panErr.classList.remove('hidden');
+    } else {
+      alert("PAN / VAT must be exactly 9 numeric digits.");
+    }
+    panInput.focus();
+    return;
+  } else {
+    panInput.classList.remove('border-rose-500', 'bg-rose-50');
+    if (panErr) panErr.classList.add('hidden');
+  }
+
   const btn = document.getElementById('btnSaveSup');
   btn.disabled = true;
   btn.innerText = 'Saving...';
 
   const formData = new FormData();
   formData.append('name', document.getElementById('modalSupName').value.trim());
-  formData.append('pan_vat_number', document.getElementById('modalSupPan').value.trim());
-  formData.append('address', document.getElementById('modalSupAddress').value.trim());
+  formData.append('pan_vat_number', panVal);
+  formData.append('contact_person', document.getElementById('modalSupContact').value.trim());
   formData.append('phone', document.getElementById('modalSupPhone').value.trim());
+  formData.append('email', document.getElementById('modalSupEmail').value.trim());
+  formData.append('address', document.getElementById('modalSupAddress').value.trim());
+  formData.append('is_vat_exempt', document.getElementById('modalSupExempt').checked);
+  formData.append('apply_vat', document.getElementById('modalSupVat').checked);
+  formData.append('apply_excise', document.getElementById('modalSupExcise').checked);
 
   fetch('/api/suppliers/quick-create/', {
     method: 'POST',
@@ -171,6 +197,8 @@ function submitQuickProduct(e) {
   formData.append('name', document.getElementById('modalProdName').value.trim());
   formData.append('hs_code', document.getElementById('modalProdHs').value.trim());
   formData.append('selling_price', document.getElementById('modalProdPrice').value.trim());
+  formData.append('apply_vat', document.getElementById('modalProdVat').checked);
+  formData.append('apply_excise', document.getElementById('modalProdExcise').checked);
 
   fetch('/api/products/quick-create/', {
     method: 'POST',
@@ -224,11 +252,9 @@ function applyProductToRow(p, tr) {
   tr.querySelector('.productId').value = p.id;
   tr.querySelector('.price').value = parseFloat(p.unit_price || 0).toFixed(2);
 
-  // Store product-tagged tax rates on the row
   tr.dataset.vatRate = p.vat_rate !== undefined ? p.vat_rate : 13.0;
   tr.dataset.exciseRate = p.excise_rate !== undefined ? p.excise_rate : 0.0;
 
-  // Store hidden inputs for form post
   tr.querySelector('.lineExciseRate').value = tr.dataset.exciseRate;
   tr.querySelector('.lineVatRate').value = tr.dataset.vatRate;
 
@@ -291,7 +317,6 @@ function bindProductSearch(tr) {
           });
         }
 
-        // Always show persistent Quick Create product footer
         const createDiv = document.createElement('div');
         createDiv.className = 'p-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold cursor-pointer text-xs border-t border-indigo-200 flex items-center justify-between sticky bottom-0';
         createDiv.innerHTML = `<span>+ Create new product ${q ? `"${q}" ` : ''}in Master</span><span class="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded">Quick Add</span>`;
@@ -380,16 +405,13 @@ window.submitQuickCharge = function(e) {
     btn.innerText = 'Save to Master & Use';
     if (res.status === 'success') {
       const newCharge = res.charge;
-      // Reload cache and re-populate the charge row
       loadOtherChargesMaster(() => {
-        // Update all select dropdowns on screen
         document.querySelectorAll('.chargeSelect').forEach(sel => {
           const opt = document.createElement('option');
           opt.value = newCharge.id;
           opt.textContent = `${newCharge.name} (${newCharge.code})`;
           sel.insertBefore(opt, sel.lastElementChild);
         });
-        // If no rows exist or last select has no charge, add/select it
         const lastRow = document.querySelector('.chargeRow:last-child');
         if (lastRow) {
           lastRow.querySelector('.chargeSelect').value = newCharge.id;
@@ -422,7 +444,6 @@ function addChargeRow(selectedChargeId = null) {
     optionsHtml = '<option value="">No charges configured in Master</option>';
   }
 
-  // Include "+ Create new in Master" as the final option in the dropdown
   optionsHtml += '<option value="__CREATE_NEW__" class="font-bold text-indigo-600 bg-indigo-50">+ Create new in Master</option>';
 
   row.innerHTML = `
@@ -457,7 +478,6 @@ function calculateTotals() {
 
   const rows = document.querySelectorAll('#itemsBody tr');
 
-  // A. Compute line items using product-specific rates
   rows.forEach(row => {
     const qty = parseFloat(row.querySelector('.qty').value) || 0;
     const rate = parseFloat(row.querySelector('.price').value) || 0;
@@ -484,13 +504,11 @@ function calculateTotals() {
     totalVat += vat;
   });
 
-  // B. Sum other charges
   let totalOtherCharges = 0;
   document.querySelectorAll('.chargeAmount').forEach(inp => {
     totalOtherCharges += parseFloat(inp.value) || 0;
   });
 
-  // C. Apportion other charges to compute unit landed cost
   rows.forEach(row => {
     const qty = parseFloat(row.querySelector('.qty').value) || 0;
     const taxable = parseFloat(row.querySelector('.lineTaxable').innerText) || 0;
@@ -508,7 +526,6 @@ function calculateTotals() {
 
   const grandTotal = totalTaxable + totalExcise + totalVat + totalOtherCharges;
 
-  // D. Update Summary Box
   document.getElementById('displayGross').innerText = grossSubtotal.toFixed(2);
   document.getElementById('displayDiscount').innerText = totalDiscount > 0 ? `-${totalDiscount.toFixed(2)}` : "-0.00";
   document.getElementById('displayTaxable').innerText = totalTaxable.toFixed(2);
@@ -575,7 +592,255 @@ document.addEventListener('click', function(e) {
   });
 });
 
+// =============================================================================
+// 6. Multi-Instance Bikram Sambat (BS) <-> Gregorian (AD) Date Engine
+// =============================================================================
+const BS_MONTH_NAMES = [
+  "Baishakh", "Jestha", "Ashadh", "Shrawan", "Bhadra", "Ashwin",
+  "Kartik", "Mangsir", "Poush", "Magh", "Falgun", "Chaitra"
+];
+
+function initNepaliDatePickers() {
+  document.querySelectorAll('.nepali-datepicker-group').forEach(group => {
+    const bsInput = group.querySelector('.bs-date-input');
+    const toggleBtn = group.querySelector('.bs-picker-toggle');
+    const dropdown = group.querySelector('.bs-calendar-dropdown');
+    const errElem = group.querySelector('.bs-date-error');
+    const adInputSelector = group.dataset.adTarget;
+    const adInput = adInputSelector ? document.querySelector(adInputSelector) : null;
+
+    if (!bsInput || !dropdown) return;
+
+    dropdown.innerHTML = `
+      <div class="flex items-center justify-between gap-1 mb-2 pb-2 border-b border-slate-100">
+        <select class="bs-year-select border border-slate-200 rounded px-1.5 py-1 text-slate-700 font-bold focus:ring-1 focus:ring-indigo-500"></select>
+        <select class="bs-month-select border border-slate-200 rounded px-1.5 py-1 text-slate-700 font-bold focus:ring-1 focus:ring-indigo-500">
+          ${BS_MONTH_NAMES.map((name, idx) => `<option value="${idx + 1}">${name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="grid grid-cols-7 gap-1 text-center font-bold text-[10px] text-slate-400 mb-1">
+        <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span class="text-rose-500">Sa</span>
+      </div>
+      <div class="bs-days-grid grid grid-cols-7 gap-1 font-mono text-[11px] text-center min-h-[140px]"></div>
+    `;
+
+    const yearSelect = dropdown.querySelector('.bs-year-select');
+    const monthSelect = dropdown.querySelector('.bs-month-select');
+    const daysGrid = dropdown.querySelector('.bs-days-grid');
+
+    for (let y = 2095; y >= 2000; y--) {
+      const opt = document.createElement('option');
+      opt.value = y;
+      opt.textContent = y;
+      yearSelect.appendChild(opt);
+    }
+
+    function showError(msg) {
+      bsInput.classList.add('border-rose-500', 'bg-rose-50');
+      if (errElem) {
+        errElem.innerText = msg;
+        errElem.classList.remove('hidden');
+      }
+    }
+
+    function clearError() {
+      bsInput.classList.remove('border-rose-500', 'bg-rose-50');
+      if (errElem) {
+        errElem.classList.add('hidden');
+        errElem.innerText = '';
+      }
+    }
+
+    function validateAndSync() {
+      const val = bsInput.value.trim();
+      if (!val) {
+        if (bsInput.hasAttribute('required')) {
+          showError("Bikram Sambat (BS) date is mandatory.");
+          return false;
+        }
+        clearError();
+        if (adInput) adInput.value = '';
+        return true;
+      }
+
+      const match = val.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!match) {
+        showError("Invalid format. Use YYYY-MM-DD (e.g. 2083-06-13).");
+        return false;
+      }
+
+      const y = parseInt(match[1], 10);
+      const m = parseInt(match[2], 10);
+      const d = parseInt(match[3], 10);
+
+      if (y < 2000 || y > 2095) {
+        showError(`Year ${y} out of range (2000-2095 BS).`);
+        return false;
+      }
+      if (m < 1 || m > 12) {
+        showError("Month must be between 01 and 12.");
+        return false;
+      }
+
+      const maxDays = window.NepaliDateEngine.getMonthDays(y, m);
+      if (d < 1 || d > maxDays) {
+        showError(`Month ${String(m).padStart(2, '0')}/${y} has only ${maxDays} days.`);
+        return false;
+      }
+
+      const adEquivalent = window.NepaliDateEngine.bsToAd(val);
+      if (!adEquivalent) {
+        showError("Conversion error for this date.");
+        return false;
+      }
+
+      clearError();
+      if (adInput) {
+        adInput.value = adEquivalent;
+      }
+      return true;
+    }
+
+    function renderGrid(year, month, selectedDay) {
+      daysGrid.innerHTML = '';
+      const totalDays = window.NepaliDateEngine.getMonthDays(year, month);
+      const startDayOfWeek = window.NepaliDateEngine.getBsDayOfWeek(year, month, 1);
+
+      for (let i = 0; i < startDayOfWeek; i++) {
+        const blank = document.createElement('span');
+        blank.className = 'py-1';
+        daysGrid.appendChild(blank);
+      }
+
+      for (let day = 1; day <= totalDays; day++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        const dayOfWeek = (startDayOfWeek + day - 1) % 7;
+        const isSat = dayOfWeek === 6;
+
+        let btnClass = 'py-1 rounded hover:bg-indigo-100 hover:text-indigo-700 transition-colors ';
+        if (day === selectedDay) {
+          btnClass += 'bg-indigo-600 text-white font-bold ';
+        } else if (isSat) {
+          btnClass += 'text-rose-600 font-semibold ';
+        } else {
+          btnClass += 'text-slate-700 ';
+        }
+
+        btn.className = btnClass;
+        btn.textContent = day;
+
+        btn.onmousedown = (e) => e.preventDefault();
+        btn.onclick = () => {
+          const formatted = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          bsInput.value = formatted;
+          validateAndSync();
+          dropdown.classList.add('hidden');
+          bsInput.focus();
+        };
+
+        daysGrid.appendChild(btn);
+      }
+    }
+
+    function syncGridFromInput() {
+      let y = 2083, m = 6, d = 1;
+      const parts = bsInput.value.split('-').map(Number);
+      if (parts.length === 3 && !isNaN(parts[0])) {
+        y = parts[0];
+        m = parts[1];
+        d = parts[2];
+      }
+      yearSelect.value = y;
+      monthSelect.value = m;
+      renderGrid(y, m, d);
+    }
+
+    bsInput.addEventListener('blur', validateAndSync);
+    bsInput.addEventListener('input', () => {
+      if (bsInput.value.length === 10) {
+        validateAndSync();
+      } else {
+        clearError();
+      }
+    });
+
+    if (toggleBtn) {
+      toggleBtn.onclick = (e) => {
+        e.stopPropagation();
+        document.querySelectorAll('.bs-calendar-dropdown').forEach(d => {
+          if (d !== dropdown) d.classList.add('hidden');
+        });
+        dropdown.classList.toggle('hidden');
+        if (!dropdown.classList.contains('hidden')) {
+          syncGridFromInput();
+        }
+      };
+    }
+
+    yearSelect.addEventListener('change', () => {
+      renderGrid(parseInt(yearSelect.value), parseInt(monthSelect.value), 1);
+    });
+    monthSelect.addEventListener('change', () => {
+      renderGrid(parseInt(yearSelect.value), parseInt(monthSelect.value), 1);
+    });
+
+    if (adInput) {
+      adInput.addEventListener('change', () => {
+        if (adInput.value) {
+          const bsEquivalent = window.NepaliDateEngine.adToBs(adInput.value);
+          if (bsEquivalent) {
+            bsInput.value = bsEquivalent;
+            clearError();
+          }
+        }
+      });
+
+      if (!adInput.value) {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        adInput.value = `${yyyy}-${mm}-${dd}`;
+      }
+      if (!bsInput.value && adInput.value) {
+        bsInput.value = window.NepaliDateEngine.adToBs(adInput.value);
+      }
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.nepali-datepicker-group')) {
+      document.querySelectorAll('.bs-calendar-dropdown').forEach(d => d.classList.add('hidden'));
+    }
+  });
+}
+
+// =============================================================================
+// Initialization on Page Ready
+// =============================================================================
 document.addEventListener('DOMContentLoaded', () => {
   loadOtherChargesMaster();
   addPurchaseRow();
+  initNepaliDatePickers();
+
+  const invoiceForm = document.getElementById('purchaseInvoiceForm');
+  if (invoiceForm) {
+    invoiceForm.addEventListener('submit', function(e) {
+      if (!validateBeforeSubmit(e)) return;
+
+      let allValid = true;
+      document.querySelectorAll('.nepali-datepicker-group .bs-date-input').forEach(inp => {
+        if (inp.hasAttribute('required') && !inp.value.trim()) {
+          inp.classList.add('border-rose-500', 'bg-rose-50');
+          allValid = false;
+        }
+      });
+
+      if (!allValid) {
+        e.preventDefault();
+        alert("Please ensure all required Bikram Sambat (BS) date fields are filled correctly.");
+      }
+    });
+  }
 });

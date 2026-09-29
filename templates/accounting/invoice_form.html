@@ -5,11 +5,12 @@
 
 {% block content %}
 <style>
-  input[type=number]::-webkit-inner-spin-button, 
-  input[type=number]::-webkit-outer-spin-button { 
-    -webkit-appearance: none; 
-    margin: 0; 
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
+
   input[type=number] {
     -moz-appearance: textfield;
   }
@@ -17,10 +18,10 @@
 
 <!-- Hidden element passing server configurations to external JS -->
 <div id="sales-invoice-config" class="hidden"
-     data-allow-quick-customer="{{ settings.allow_quick_customer_creation|yesno:'true,false' }}"
-     data-allow-quick-product="{{ settings.allow_quick_product_creation|yesno:'true,false' }}"
-     data-enable-free="{{ settings.enable_free_item_discount|yesno:'true,false' }}"
-     data-enable-promo="{{ settings.enable_promotions|yesno:'true,false' }}">
+  data-allow-quick-customer="{{ settings.allow_quick_customer_creation|yesno:'true,false' }}"
+  data-allow-quick-product="{{ settings.allow_quick_product_creation|yesno:'true,false' }}"
+  data-enable-free="{{ settings.enable_free_item_discount|yesno:'true,false' }}"
+  data-enable-promo="{{ settings.enable_promotions|yesno:'true,false' }}">
 </div>
 
 <div class="max-w-5xl mx-auto bg-white rounded-xl border border-slate-200 shadow-sm p-6">
@@ -36,20 +37,25 @@
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div class="relative">
         <label class="block font-semibold text-slate-700 mb-1">Customer (Search or Click to Browse) *</label>
-        <input type="text" id="customerSearchInput" placeholder="Click to choose or type name/PAN..." autocomplete="off" class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+        <input type="text" id="customerSearchInput" placeholder="Click to choose or type name/PAN..." autocomplete="off"
+          class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
         <input type="hidden" name="customer_id" id="selectedCustomerId" required>
-        <div id="customerResults" class="hidden absolute left-0 right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-2xl z-50 max-h-56 overflow-y-auto"></div>
+        <div id="customerResults"
+          class="hidden absolute left-0 right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-2xl z-50 max-h-56 overflow-y-auto">
+        </div>
         <p id="customerMeta" class="text-[11px] text-slate-500 mt-1 font-mono"></p>
         <p id="customerError" class="hidden text-[11px] text-rose-600 font-semibold mt-1"></p>
       </div>
 
       <div>
         <label class="block font-semibold text-slate-700 mb-1">Invoice Date *</label>
-        <input type="date" name="date" value="{% now 'Y-m-d' %}" required class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+        <input type="date" name="date" value="{% now 'Y-m-d' %}" required
+          class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
       </div>
       <div>
         <label class="block font-semibold text-slate-700 mb-1">Payment Due Date</label>
-        <input type="date" name="due_date" class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+        <input type="date" name="due_date"
+          class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
       </div>
     </div>
 
@@ -57,7 +63,9 @@
     <div class="relative overflow-visible">
       <div class="flex justify-between items-center mb-2">
         <h3 class="font-bold text-slate-800 text-sm">Line Items & Promotions</h3>
-        <button type="button" onclick="addInvoiceRow()" class="px-3 py-1 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 shadow-xs">+ Add Row</button>
+        <button type="button" onclick="addInvoiceRow()"
+          class="px-3 py-1 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 shadow-xs">+ Add
+          Row</button>
       </div>
 
       <table class="w-full border border-slate-200 rounded-lg" id="itemsTable">
@@ -68,10 +76,10 @@
             <th class="p-2 text-right w-24">Qty</th>
             <th class="p-2 text-right w-28">Rate (Rs.)</th>
             {% if settings.enable_free_item_discount %}
-              <th class="p-2 text-center w-24">100% Free</th>
+            <th class="p-2 text-center w-24">100% Free</th>
             {% endif %}
             {% if settings.enable_promotions %}
-              <th class="p-2 text-left w-36">Promotion Note</th>
+            <th class="p-2 text-left w-36">Promotion Note</th>
             {% endif %}
             <th class="p-2 text-right w-24">Amount</th>
             <th class="p-2 text-center w-8"></th>
@@ -85,119 +93,180 @@
 
     <!-- Discounts Section -->
     {% if settings.enable_percent_discount or settings.enable_value_discount %}
-      <div class="border-t border-slate-200 pt-4 bg-slate-50 p-4 rounded-lg">
-        <div class="flex items-center gap-4 mb-3">
-          <span class="font-bold text-slate-700">Enable Discounts:</span>
-          {% if settings.enable_percent_discount %}
-            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="enablePct" onchange="toggleDiscountFields()"> % Discount</label>
-          {% endif %}
-          {% if settings.enable_value_discount %}
-            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="enableVal" onchange="toggleDiscountFields()"> Value Discount</label>
-          {% endif %}
-        </div>
-
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {% if settings.enable_percent_discount %}
-            <div id="pctFieldContainer" class="hidden">
-              <label class="block font-semibold text-slate-700 mb-1">Percentage Discount (%)</label>
-              <input type="number" step="0.01" name="percent_discount_rate" id="percentDiscountRate" value="0.00" oninput="calculateTotals()" class="w-full border border-slate-300 rounded-lg p-2 font-mono">
-            </div>
-          {% endif %}
-          {% if settings.enable_value_discount %}
-            <div id="valFieldContainer" class="hidden">
-              <label class="block font-semibold text-slate-700 mb-1">Flat Value Discount (Rs.)</label>
-              <input type="number" step="0.01" name="value_discount_amount" id="valueDiscountAmount" value="0.00" oninput="calculateTotals()" class="w-full border border-slate-300 rounded-lg p-2 font-mono">
-            </div>
-          {% endif %}
-        </div>
+    <div class="border-t border-slate-200 pt-4 bg-slate-50 p-4 rounded-lg">
+      <div class="flex items-center gap-4 mb-3">
+        <span class="font-bold text-slate-700">Enable Discounts:</span>
+        {% if settings.enable_percent_discount %}
+        <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="enablePct"
+            onchange="toggleDiscountFields()"> % Discount</label>
+        {% endif %}
+        {% if settings.enable_value_discount %}
+        <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="enableVal"
+            onchange="toggleDiscountFields()"> Value Discount</label>
+        {% endif %}
       </div>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {% if settings.enable_percent_discount %}
+        <div id="pctFieldContainer" class="hidden">
+          <label class="block font-semibold text-slate-700 mb-1">Percentage Discount (%)</label>
+          <input type="number" step="0.01" name="percent_discount_rate" id="percentDiscountRate" value="0.00"
+            oninput="calculateTotals()" class="w-full border border-slate-300 rounded-lg p-2 font-mono">
+        </div>
+        {% endif %}
+        {% if settings.enable_value_discount %}
+        <div id="valFieldContainer" class="hidden">
+          <label class="block font-semibold text-slate-700 mb-1">Flat Value Discount (Rs.)</label>
+          <input type="number" step="0.01" name="value_discount_amount" id="valueDiscountAmount" value="0.00"
+            oninput="calculateTotals()" class="w-full border border-slate-300 rounded-lg p-2 font-mono">
+        </div>
+        {% endif %}
+      </div>
+    </div>
     {% endif %}
 
     <!-- Totals Summary -->
     <div class="flex justify-end">
       <div class="w-80 space-y-1.5 font-mono text-xs border border-slate-200 p-4 rounded-xl bg-white shadow-2xs">
         <div class="flex justify-between"><span>Gross Subtotal:</span><span id="displayGross">0.00</span></div>
-        <div class="flex justify-between text-rose-600"><span>% Discount:</span><span id="displayPctAmt">-0.00</span></div>
-        <div class="flex justify-between text-rose-600"><span>Value Discount:</span><span id="displayValAmt">-0.00</span></div>
-        <div class="flex justify-between text-rose-600"><span>FREE Item Discount:</span><span id="displayFreeAmt">-0.00</span></div>
-        <div class="flex justify-between font-bold border-t pt-1"><span>Total Discount:</span><span id="displayTotalDiscount">-0.00</span></div>
-        <div class="flex justify-between font-semibold border-t pt-1"><span>Taxable Subtotal:</span><span id="displayTaxable">0.00</span></div>
-        <div class="flex justify-between"><span>VAT (<span id="appliedTaxRate">13</span>%):</span><span id="displayTax">0.00</span></div>
-        <div class="flex justify-between font-bold text-sm text-indigo-600 border-t pt-1"><span>Grand Total:</span><span id="displayGrand">0.00</span></div>
+        <div class="flex justify-between text-rose-600"><span>% Discount:</span><span id="displayPctAmt">-0.00</span>
+        </div>
+        <div class="flex justify-between text-rose-600"><span>Value Discount:</span><span
+            id="displayValAmt">-0.00</span></div>
+        <div class="flex justify-between text-rose-600"><span>FREE Item Discount:</span><span
+            id="displayFreeAmt">-0.00</span></div>
+        <div class="flex justify-between font-bold border-t pt-1"><span>Total Discount:</span><span
+            id="displayTotalDiscount">-0.00</span></div>
+        <div class="flex justify-between font-semibold border-t pt-1"><span>Taxable Subtotal:</span><span
+            id="displayTaxable">0.00</span></div>
+        <div class="flex justify-between"><span>VAT (<span id="appliedTaxRate">13</span>%):</span><span
+            id="displayTax">0.00</span></div>
+        <div class="flex justify-between font-bold text-sm text-indigo-600 border-t pt-1"><span>Grand Total:</span><span
+            id="displayGrand">0.00</span></div>
       </div>
     </div>
 
     <!-- Bottom Action Buttons -->
     <div class="flex justify-end gap-2 pt-4 border-t border-slate-200">
       <a href="{% url 'invoice-list' %}" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</a>
-      <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm">
+      <button type="submit"
+        class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm">
         Save & Issue Tax Invoice
       </button>
     </div>
   </form>
 </div>
 
-<!-- ========================================================================= -->
-<!-- Quick Customer Modal                                                      -->
-<!-- ========================================================================= -->
+<!-- Quick Customer Modal (with VAT Exempt & Email) -->
 <div id="customerModal" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
-  <div class="bg-white rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+  <div class="bg-white rounded-xl max-w-lg w-full p-5 space-y-4 shadow-2xl">
     <div class="flex justify-between items-center border-b pb-2">
       <h3 class="font-bold text-slate-900 text-sm">Add New Customer to Master</h3>
-      <button type="button" onclick="closeCustomerModal()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">&times;</button>
+      <button type="button" onclick="closeCustomerModal()"
+        class="text-slate-400 hover:text-slate-600 font-bold text-lg">&times;</button>
     </div>
     <form id="quickCustomerForm" onsubmit="submitQuickCustomer(event)" class="space-y-3 text-xs">
       <div>
         <label class="block font-semibold mb-1">Customer / Firm Name *</label>
-        <input type="text" id="modalCustName" required class="w-full border rounded-lg p-2">
+        <input type="text" id="modalCustName" required placeholder="e.g. Bimal Kirana"
+          class="w-full border rounded-lg p-2">
       </div>
-      <div>
-        <label class="block font-semibold mb-1">PAN / VAT Number</label>
-        <input type="text" id="modalCustPan" placeholder="9-digit PAN" class="w-full border rounded-lg p-2 font-mono">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block font-semibold mb-1">PAN / VAT Number</label>
+          <input type="text" id="modalCustPan" maxlength="9" inputmode="numeric" placeholder="9-digit numeric PAN"
+            oninput="this.value = this.value.replace(/\D/g, '')" class="w-full border rounded-lg p-2 font-mono">
+          <p id="modalCustPanErr" class="hidden text-[10px] text-rose-600 font-semibold mt-0.5"></p>
+        </div>
+        <div>
+          <label class="block font-semibold mb-1">Phone Number</label>
+          <input type="text" id="modalCustPhone" placeholder="e.g. 98XXXXXXXX" class="w-full border rounded-lg p-2">
+        </div>
       </div>
-      <div>
-        <label class="block font-semibold mb-1">Address</label>
-        <input type="text" id="modalCustAddress" placeholder="e.g. Chitwan, Nepal" class="w-full border rounded-lg p-2">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block font-semibold mb-1">Email Address</label>
+          <input type="email" id="modalCustEmail" placeholder="billing@client.com" class="w-full border rounded-lg p-2">
+        </div>
+        <div>
+          <label class="block font-semibold mb-1">Billing Address</label>
+          <input type="text" id="modalCustAddress" placeholder="e.g. Khairahani-01, Chitwan"
+            class="w-full border rounded-lg p-2">
+        </div>
       </div>
-      <div>
-        <label class="block font-semibold mb-1">Phone</label>
-        <input type="text" id="modalCustPhone" class="w-full border rounded-lg p-2">
+      <!-- VAT Exempt Toggle matching Edit Customer screen -->
+      <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" id="modalCustExempt" class="rounded text-indigo-600 focus:ring-indigo-500">
+          <div>
+            <span class="font-bold text-slate-800 text-[11px]">VAT Exempt Entity</span>
+            <p class="text-[10px] text-slate-400">Check if entity is legally exempt from VAT</p>
+          </div>
+        </label>
       </div>
       <div class="flex justify-end gap-2 pt-2 border-t">
-        <button type="button" onclick="closeCustomerModal()" class="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
-        <button type="submit" id="btnSaveCust" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg">Save to Master & Select</button>
+        <button type="button" onclick="closeCustomerModal()"
+          class="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
+        <button type="submit" id="btnSaveCust"
+          class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm">Save to Master
+          & Select</button>
       </div>
     </form>
   </div>
 </div>
 
-<!-- ========================================================================= -->
-<!-- Quick Product Modal                                                       -->
-<!-- ========================================================================= -->
+<!-- Quick Product Modal (with VAT and Excise Tagging) -->
 <div id="productModal" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
   <div class="bg-white rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
     <div class="flex justify-between items-center border-b pb-2">
       <h3 class="font-bold text-slate-900 text-sm">Add New Product to Master</h3>
-      <button type="button" onclick="closeProductModal()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">&times;</button>
+      <button type="button" onclick="closeProductModal()"
+        class="text-slate-400 hover:text-slate-600 font-bold text-lg">&times;</button>
     </div>
     <form id="quickProductForm" onsubmit="submitQuickProduct(event)" class="space-y-3 text-xs">
       <div>
         <label class="block font-semibold mb-1">Product Title / Name *</label>
-        <input type="text" id="modalProdName" required placeholder="e.g. Pen Drive 32 GB" class="w-full border rounded-lg p-2">
+        <input type="text" id="modalProdName" required placeholder="e.g. Blush with Brush"
+          class="w-full border rounded-lg p-2">
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block font-semibold mb-1">HS Code</label>
-          <input type="text" id="modalProdHs" placeholder="e.g. 8523.51" class="w-full border rounded-lg p-2 font-mono">
+          <input type="text" id="modalProdHs" placeholder="e.g. 3209.10" class="w-full border rounded-lg p-2 font-mono">
         </div>
         <div>
           <label class="block font-semibold mb-1">Selling Price (Rs.) *</label>
-          <input type="number" step="0.01" id="modalProdPrice" required placeholder="0.00" class="w-full border rounded-lg p-2 font-mono">
+          <input type="number" step="0.01" id="modalProdPrice" required placeholder="0.00"
+            class="w-full border rounded-lg p-2 font-mono">
+        </div>
+      </div>
+      <div class="border border-slate-200 p-3 rounded-lg bg-slate-50 space-y-2">
+        <span class="block font-bold text-slate-800 text-[11px]">Tag Applicable Taxes</span>
+        <div class="grid grid-cols-2 gap-2">
+          <label
+            class="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
+            <input type="checkbox" id="modalProdVat" checked class="rounded text-indigo-600 focus:ring-indigo-500">
+            <div>
+              <div class="font-bold text-slate-800 text-[11px]">VAT 13%</div>
+              <div class="text-[10px] text-slate-400">Value Added Tax</div>
+            </div>
+          </label>
+          <label
+            class="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
+            <input type="checkbox" id="modalProdExcise" class="rounded text-indigo-600 focus:ring-indigo-500">
+            <div>
+              <div class="font-bold text-slate-800 text-[11px]">Excise Duty 5%</div>
+              <div class="text-[10px] text-slate-400">Excise Duty</div>
+            </div>
+          </label>
         </div>
       </div>
       <div class="flex justify-end gap-2 pt-2 border-t">
-        <button type="button" onclick="closeProductModal()" class="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
-        <button type="submit" id="btnSaveProd" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg">Save to Master & Use</button>
+        <button type="button" onclick="closeProductModal()"
+          class="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
+        <button type="submit" id="btnSaveProd"
+          class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm">Save to Master
+          & Use</button>
       </div>
     </form>
   </div>

@@ -1,161 +1,275 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Create Purchase Invoice - EasyLedger{% endblock %}
+{% block title %}New Purchase Invoice - EasyLedger{% endblock %}
 
 {% block content %}
 <style>
-  /* Remove native browser number input spinners so numbers never get cramped */
-  input[type=number]::-webkit-inner-spin-button, 
-  input[type=number]::-webkit-outer-spin-button { 
-    -webkit-appearance: none; 
-    margin: 0; 
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
   input[type=number] {
     -moz-appearance: textfield;
   }
 </style>
 
-<div class="max-w-5xl mx-auto bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+<div class="w-full max-w-7xl mx-auto px-4 py-6">
   <!-- Top Header Bar -->
   <div class="flex justify-between items-center mb-4 pb-2 border-b border-slate-200">
     <h1 class="text-xl font-bold text-slate-900">New Purchase Invoice</h1>
     <a href="{% url 'purchase_invoice_list' %}" class="text-xs text-slate-500 hover:text-indigo-600">&larr; Back to Invoices</a>
   </div>
 
-  <form method="POST" id="purchaseInvoiceForm" onsubmit="return validateBeforeSubmit(event)" class="space-y-6 text-xs">
+  <form method="POST" id="purchaseInvoiceForm" class="space-y-4 text-xs">
     {% csrf_token %}
 
-    <!-- Top Fields: Supplier Search, Bill No & Date -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div class="relative">
-        <label class="block font-semibold text-slate-700 mb-1">Supplier (Search or Click to Browse) *</label>
-        <input type="text" id="supplierSearchInput" placeholder="Click to choose or type name/PAN..." autocomplete="off" class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-        <input type="hidden" name="supplier_id" id="selectedSupplierId" required>
-        <div id="supplierResults" class="hidden absolute left-0 right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-2xl z-50 max-h-56 overflow-y-auto"></div>
-        <p id="supplierMeta" class="text-[11px] text-slate-500 mt-1 font-mono"></p>
-        <p id="supplierError" class="hidden text-[11px] text-rose-600 font-semibold mt-1"></p>
-      </div>
-
-      <div>
-        <label class="block font-semibold text-slate-700 mb-1">Supplier Bill No. *</label>
-        <input type="text" name="supplier_invoice_no" placeholder="e.g. BILL-9821" required class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-      </div>
-
-      <div>
-        <label class="block font-semibold text-slate-700 mb-1">Bill Date (AD) *</label>
-        <input type="date" name="supplier_invoice_date" value="{% now 'Y-m-d' %}" required class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-      </div>
-    </div>
-
-    <!-- Line Items Table -->
-    <div class="relative overflow-visible">
-      <div class="flex justify-between items-center mb-2">
-        <h3 class="font-bold text-slate-800 text-sm">Line Items & Landing Cost Apportionment</h3>
-        <button type="button" onclick="addPurchaseRow()" class="px-3 py-1 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 shadow-xs">+ Add Row</button>
-      </div>
-
-      <table class="w-full border border-slate-200 rounded-lg" id="itemsTable">
-        <thead class="bg-slate-50 border-b border-slate-200 font-bold text-slate-700">
-          <tr>
-            <th class="p-2 text-left w-72">Item / Product (Click or type to search) *</th>
-            <th class="p-2 text-right w-24">Qty</th>
-            <th class="p-2 text-right w-28">Rate (Rs.)</th>
-            <th class="p-2 text-right w-24">Discount</th>
-            <th class="p-2 text-right w-20">Taxable</th>
-            <th class="p-2 text-right w-16">Excise (5%)</th>
-            <th class="p-2 text-right w-16">VAT (13%)</th>
-            <th class="p-2 text-right w-24">Total</th>
-            <th class="p-2 text-right w-24 bg-indigo-50 text-indigo-700">Unit Landed</th>
-            <th class="p-2 text-center w-8"></th>
-          </tr>
-        </thead>
-        <tbody id="itemsBody" class="divide-y divide-slate-100 font-mono">
-          <!-- Injected via JavaScript -->
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Dual Section: Other Charges Master & Totals Summary -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start pt-2">
-      <!-- Left: Other Charges (Capitalized to Stock) -->
-      <div class="border border-slate-200 p-4 rounded-xl bg-slate-50 space-y-3">
-        <div class="flex justify-between items-center border-b border-slate-200 pb-2">
-          <div>
-            <span class="block font-bold text-slate-800 text-xs">Other Charges (Capitalized to Stock)</span>
-            <p class="text-[10px] text-slate-500">Freight, labor & handling fees apportioned into landed cost</p>
+    <!-- Top Card: Supplier & Entry Dates -->
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+      
+      <!-- Row 1: Supplier Search and Entry Dates -->
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+        <!-- Supplier Search (6 cols) -->
+        <div class="md:col-span-6 relative">
+          <label class="block font-semibold text-slate-700 mb-1">Supplier (Search or Browse) *</label>
+          <input type="text" id="supplierSearchInput" placeholder="Click to choose or type name/PAN..."
+            autocomplete="off"
+            class="w-full border border-slate-300 rounded-lg p-2.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+          <input type="hidden" name="supplier_id" id="selectedSupplierId" required>
+          <div id="supplierResults"
+            class="hidden absolute left-0 right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-2xl z-50 max-h-56 overflow-y-auto">
           </div>
-          <button type="button" onclick="addChargeRow()" class="px-2.5 py-1 bg-white border border-slate-300 text-indigo-600 font-bold rounded hover:bg-indigo-50 text-[11px] shadow-2xs">
-            + Add Charge
-          </button>
+          <p id="supplierMeta" class="text-[11px] text-slate-500 mt-1 font-mono"></p>
+          <p id="supplierError" class="hidden text-[11px] text-rose-600 font-semibold mt-1"></p>
         </div>
 
-        <div id="chargesContainer" class="space-y-2">
-          <!-- Injected via JavaScript -->
+        <!-- Entry Date (BS) (3 cols) -->
+        <div class="md:col-span-3 nepali-datepicker-group relative" data-ad-target="#entryDateAd">
+          <label class="block font-semibold text-slate-700 mb-1">Entry Date (BS) *</label>
+          <div class="relative">
+            <input type="text" name="entry_date_bs" id="entryDateBs" maxlength="10" placeholder="YYYY-MM-DD" required
+              autocomplete="off"
+              class="bs-date-input w-full border border-slate-300 rounded-lg p-2.5 pr-9 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+            <button type="button"
+              class="bs-picker-toggle absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </button>
+          </div>
+          <div class="bs-calendar-dropdown hidden absolute left-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 p-3 w-72 text-xs"></div>
+          <p class="bs-date-error hidden text-[11px] text-rose-600 font-semibold mt-1"></p>
+        </div>
+
+        <!-- Entry Date (AD) (3 cols) -->
+        <div class="md:col-span-3">
+          <label class="block font-semibold text-slate-700 mb-1">Entry Date (AD) *</label>
+          <input type="date" name="entry_date" id="entryDateAd" required
+            class="ad-date-input w-full border border-slate-300 rounded-lg p-2.5 font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            data-bs-target="#entryDateBs">
         </div>
       </div>
 
-      <!-- Right: Financial Totals Summary -->
-      <div class="flex justify-end">
-        <div class="w-full space-y-1.5 font-mono text-xs border border-slate-200 p-4 rounded-xl bg-white shadow-2xs">
-          <div class="flex justify-between"><span>Gross Subtotal:</span><span id="displayGross">0.00</span></div>
-          <div class="flex justify-between text-rose-600"><span>Trade Discount:</span><span id="displayDiscount">-0.00</span></div>
-          <div class="flex justify-between font-semibold border-t pt-1"><span>Taxable Base:</span><span id="displayTaxable">0.00</span></div>
-          <div class="flex justify-between"><span>Excise Duty (5%):</span><span id="displayExcise">0.00</span></div>
-          <div class="flex justify-between"><span>VAT (13%):</span><span id="displayVat">0.00</span></div>
-          <div class="flex justify-between"><span>Other Charges (Capitalized):</span><span id="displayOtherCharges">0.00</span></div>
-          <div class="flex justify-between font-bold text-sm text-indigo-600 border-t pt-1"><span>Grand Total:</span><span id="displayGrand">0.00</span></div>
+      <!-- Row 2: Supplier Bill Details (Physical Bill) -->
+      <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+        <div class="font-bold text-slate-800 text-[11px] uppercase tracking-wider">Supplier Bill Details</div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <!-- Supplier Bill No. (Moved before BS Date) -->
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Supplier Bill No. *</label>
+            <input type="text" name="supplier_invoice_no" placeholder="e.g. BILL-9821" required
+              class="w-full border border-slate-300 rounded-lg p-2.5 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+          </div>
+
+          <!-- Supplier Bill Date (BS) -->
+          <div class="nepali-datepicker-group relative" data-ad-target="#supplierInvoiceDateAd">
+            <label class="block font-semibold text-slate-700 mb-1">Supplier Bill Date (BS) *</label>
+            <div class="relative">
+              <input type="text" name="supplier_invoice_date_bs" id="supplierInvoiceDateBs" maxlength="10"
+                placeholder="YYYY-MM-DD" required autocomplete="off"
+                class="bs-date-input w-full border border-slate-300 rounded-lg p-2.5 pr-9 font-mono bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+              <button type="button"
+                class="bs-picker-toggle absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </button>
+            </div>
+            <div class="bs-calendar-dropdown hidden absolute left-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 p-3 w-72 text-xs"></div>
+            <p class="bs-date-error hidden text-[11px] text-rose-600 font-semibold mt-1"></p>
+          </div>
+
+          <!-- Supplier Bill Date (AD) -->
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Supplier Bill Date (AD) *</label>
+            <input type="date" name="supplier_invoice_date" id="supplierInvoiceDateAd" required
+              class="ad-date-input w-full border border-slate-300 rounded-lg p-2.5 font-mono bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              data-bs-target="#supplierInvoiceDateBs">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Items Details Table Section -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="font-bold text-slate-800 text-sm">Items Details</h2>
+        <button type="button" onclick="addPurchaseRow()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-colors">+ Add Row</button>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse" id="itemsTable">
+          <thead>
+            <tr class="border-b border-slate-200 text-slate-600 font-semibold text-[11px] bg-slate-50">
+              <th class="p-2 w-72">Item / Product (Click or type to search) *</th>
+              <th class="p-2 w-20 text-right">Qty</th>
+              <th class="p-2 w-24 text-right">Rate (Rs.)</th>
+              <th class="p-2 w-20 text-right">Discount</th>
+              <th class="p-2 w-20 text-right">Taxable</th>
+              <th class="p-2 w-16 text-right">Excise (5%)</th>
+              <th class="p-2 w-16 text-right">VAT (13%)</th>
+              <th class="p-2 w-24 text-right">Total</th>
+              <th class="p-2 w-24 text-right text-indigo-700 bg-indigo-50">Unit Landed</th>
+              <th class="p-2 w-8 text-center"></th>
+            </tr>
+          </thead>
+          <tbody id="itemsBody" class="divide-y divide-slate-100 font-mono">
+            <!-- Injected via JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Apportionment & Summary Grid -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-4 border-t border-slate-100">
+        <!-- Other Charges Apportionment -->
+        <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-slate-800 text-[11px]">Other Charges (Capitalized to Stock)</span>
+            <button type="button" onclick="addChargeRow()" class="text-indigo-600 hover:text-indigo-800 font-bold text-[11px]">+ Add Charge</button>
+          </div>
+          <p class="text-[10px] text-slate-400">Freight, labor & handling fees apportioned into landed cost</p>
+          <div id="chargesContainer" class="space-y-2 pt-1"></div>
+        </div>
+
+        <!-- Totals Summary -->
+        <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 font-mono text-xs">
+          <div class="flex justify-between py-0.5 text-slate-600">
+            <span>Gross Subtotal:</span>
+            <span id="displayGross">0.00</span>
+          </div>
+          <div class="flex justify-between py-0.5 text-rose-600">
+            <span>Trade Discount:</span>
+            <span id="displayDiscount">-0.00</span>
+          </div>
+          <div class="flex justify-between py-0.5 border-t border-slate-200 pt-1 font-bold text-slate-700">
+            <span>Taxable Base:</span>
+            <span id="displayTaxable">0.00</span>
+          </div>
+          <div class="flex justify-between py-0.5 text-slate-600">
+            <span>Excise Duty (5%):</span>
+            <span id="displayExcise">0.00</span>
+          </div>
+          <div class="flex justify-between py-0.5 text-slate-600">
+            <span>VAT (13%):</span>
+            <span id="displayVat">0.00</span>
+          </div>
+          <div class="flex justify-between py-0.5 text-slate-600">
+            <span>Other Charges (Capitalized):</span>
+            <span id="displayOtherCharges">0.00</span>
+          </div>
+          <div class="flex justify-between py-1.5 border-t-2 border-slate-300 font-bold text-sm text-indigo-700">
+            <span>Grand Total:</span>
+            <span id="displayGrand">0.00</span>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- Action Buttons -->
-    <div class="flex justify-end gap-2 pt-4 border-t border-slate-200">
-      <a href="{% url 'purchase_invoice_list' %}" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</a>
-      <button type="submit" id="btnSubmitPurchase" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm">
-        Save & Commit Invoice
-      </button>
+    <div class="flex justify-end gap-3 pt-2">
+      <a href="{% url 'purchase_invoice_list' %}" class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold transition-colors">Cancel</a>
+      <button type="submit" id="btnSubmitPurchase" class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-md hover:shadow-lg transition-all">Save & Commit Invoice</button>
     </div>
   </form>
 </div>
 
-<!-- ========================================================================= -->
-<!-- Quick Supplier Modal                                                      -->
-<!-- ========================================================================= -->
+<!-- Modal: Quick Create Supplier -->
 <div id="supplierModal" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
-  <div class="bg-white rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+  <div class="bg-white rounded-xl max-w-lg w-full p-5 space-y-4 shadow-2xl">
     <div class="flex justify-between items-center border-b pb-2">
       <h3 class="font-bold text-slate-900 text-sm">Add New Supplier to Master</h3>
       <button type="button" onclick="closeSupplierModal()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">&times;</button>
     </div>
     <form id="quickSupplierForm" onsubmit="submitQuickSupplier(event)" class="space-y-3 text-xs">
       <div>
-        <label class="block font-semibold mb-1">Supplier / Firm Name *</label>
-        <input type="text" id="modalSupName" required class="w-full border rounded-lg p-2">
+        <label class="block font-semibold mb-1">Supplier / Vendor Firm Name *</label>
+        <input type="text" id="modalSupName" required placeholder="e.g. Nitu Cosmetic" class="w-full border rounded-lg p-2">
       </div>
-      <div>
-        <label class="block font-semibold mb-1">PAN / VAT Number *</label>
-        <input type="text" id="modalSupPan" maxlength="9" placeholder="9-digit PAN" required class="w-full border rounded-lg p-2 font-mono">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block font-semibold mb-1">PAN / VAT Number *</label>
+          <input type="text" id="modalSupPan" required maxlength="9" inputmode="numeric" placeholder="9-digit numeric PAN" oninput="this.value = this.value.replace(/\D/g, '')" class="w-full border rounded-lg p-2 font-mono">
+          <p id="modalSupPanErr" class="hidden text-[10px] text-rose-600 font-semibold mt-0.5"></p>
+        </div>
+        <div>
+          <label class="block font-semibold mb-1">Contact Person</label>
+          <input type="text" id="modalSupContact" placeholder="e.g. Ramesh Shrestha" class="w-full border rounded-lg p-2">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block font-semibold mb-1">Phone Number</label>
+          <input type="text" id="modalSupPhone" placeholder="e.g. 98XXXXXXXX" class="w-full border rounded-lg p-2">
+        </div>
+        <div>
+          <label class="block font-semibold mb-1">Email Address</label>
+          <input type="email" id="modalSupEmail" placeholder="sales@vendor.com" class="w-full border rounded-lg p-2">
+        </div>
       </div>
       <div>
         <label class="block font-semibold mb-1">Business Address</label>
-        <input type="text" id="modalSupAddress" placeholder="e.g. Birgunj, Nepal" class="w-full border rounded-lg p-2">
+        <input type="text" id="modalSupAddress" placeholder="e.g. Kamalnagar, Narayanghat, Chitwan" class="w-full border rounded-lg p-2">
       </div>
-      <div>
-        <label class="block font-semibold mb-1">Phone Number</label>
-        <input type="text" id="modalSupPhone" class="w-full border rounded-lg p-2">
+
+      <div class="border border-slate-200 p-3 rounded-lg bg-slate-50 space-y-2">
+        <span class="block font-bold text-slate-800 text-[11px]">Tax Exemption & Tagging</span>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" id="modalSupExempt" class="rounded text-indigo-600 focus:ring-indigo-500">
+          <div>
+            <span class="font-bold text-slate-800 text-[11px]">VAT Exempt Entity</span>
+            <p class="text-[10px] text-slate-400">Check if supplier is legally exempt from VAT</p>
+          </div>
+        </label>
+        <div class="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200">
+          <label class="flex items-center gap-2 p-1.5 bg-white rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
+            <input type="checkbox" id="modalSupVat" checked class="rounded text-indigo-600 focus:ring-indigo-500">
+            <div>
+              <div class="font-bold text-slate-800 text-[11px]">VAT 13%</div>
+              <div class="text-[10px] text-slate-400">Value Added Tax</div>
+            </div>
+          </label>
+          <label class="flex items-center gap-2 p-1.5 bg-white rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
+            <input type="checkbox" id="modalSupExcise" class="rounded text-indigo-600 focus:ring-indigo-500">
+            <div>
+              <div class="font-bold text-slate-800 text-[11px]">Excise Duty 5%</div>
+              <div class="text-[10px] text-slate-400">Excise Duty</div>
+            </div>
+          </label>
+        </div>
       </div>
+
       <div class="flex justify-end gap-2 pt-2 border-t">
         <button type="button" onclick="closeSupplierModal()" class="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
-        <button type="submit" id="btnSaveSup" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg">Save to Master & Select</button>
+        <button type="submit" id="btnSaveSup" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm">Save & Select</button>
       </div>
     </form>
   </div>
 </div>
 
-<!-- ========================================================================= -->
-<!-- Quick Product Modal                                                       -->
-<!-- ========================================================================= -->
+<!-- Modal: Quick Create Product -->
 <div id="productModal" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
   <div class="bg-white rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
     <div class="flex justify-between items-center border-b pb-2">
@@ -165,29 +279,48 @@
     <form id="quickProductForm" onsubmit="submitQuickProduct(event)" class="space-y-3 text-xs">
       <div>
         <label class="block font-semibold mb-1">Product Title / Name *</label>
-        <input type="text" id="modalProdName" required placeholder="e.g. Pen Drive 32 GB" class="w-full border rounded-lg p-2">
+        <input type="text" id="modalProdName" required placeholder="e.g. Blush with Brush" class="w-full border rounded-lg p-2">
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block font-semibold mb-1">HS Code</label>
-          <input type="text" id="modalProdHs" placeholder="e.g. 8523.51" class="w-full border rounded-lg p-2 font-mono">
+          <input type="text" id="modalProdHs" placeholder="e.g. 3209.10" class="w-full border rounded-lg p-2 font-mono">
         </div>
         <div>
-          <label class="block font-semibold mb-1">Cost / Purchase Rate (Rs.) *</label>
+          <label class="block font-semibold mb-1">Default Cost / Rate (Rs.) *</label>
           <input type="number" step="0.01" id="modalProdPrice" required placeholder="0.00" class="w-full border rounded-lg p-2 font-mono">
         </div>
       </div>
+
+      <div class="border border-slate-200 p-3 rounded-lg bg-slate-50 space-y-2">
+        <span class="block font-bold text-slate-800 text-[11px]">Tag Applicable Taxes</span>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
+            <input type="checkbox" id="modalProdVat" checked class="rounded text-indigo-600 focus:ring-indigo-500">
+            <div>
+              <div class="font-bold text-slate-800 text-[11px]">VAT 13%</div>
+              <div class="text-[10px] text-slate-400">Value Added Tax</div>
+            </div>
+          </label>
+          <label class="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
+            <input type="checkbox" id="modalProdExcise" class="rounded text-indigo-600 focus:ring-indigo-500">
+            <div>
+              <div class="font-bold text-slate-800 text-[11px]">Excise Duty 5%</div>
+              <div class="text-[10px] text-slate-400">Excise Duty</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
       <div class="flex justify-end gap-2 pt-2 border-t">
         <button type="button" onclick="closeProductModal()" class="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
-        <button type="submit" id="btnSaveProd" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg">Save to Master & Use</button>
+        <button type="submit" id="btnSaveProd" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm">Save & Use</button>
       </div>
     </form>
   </div>
 </div>
 
-<!-- ========================================================================= -->
-<!-- Quick Other Charge Modal                                                  -->
-<!-- ========================================================================= -->
+<!-- Modal: Quick Create Other Charge -->
 <div id="chargeModal" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
   <div class="bg-white rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
     <div class="flex justify-between items-center border-b pb-2">
@@ -205,7 +338,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-2 border-t">
         <button type="button" onclick="closeChargeModal()" class="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
-        <button type="submit" id="btnSaveChg" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg">Save to Master & Use</button>
+        <button type="submit" id="btnSaveChg" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg">Save & Use</button>
       </div>
     </form>
   </div>
@@ -213,5 +346,6 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static 'js/nepali_date.js' %}"></script>
 <script src="{% static 'js/purchase_invoice.js' %}"></script>
 {% endblock %}

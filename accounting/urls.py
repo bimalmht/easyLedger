@@ -79,4 +79,8 @@ urlpatterns = [
     path('api/other-charges/list/', views.other_charges_list_api, name='other_charges_list_api'),
     path('api/suppliers/quick-create/', views.quick_create_supplier_api, name='quick-create-supplier-api'),
     path('api/other-charges/quick-create/', views.quick_create_other_charge_api, name='quick-create-other-charge-api'),
+    
+    # Reports
+    path('reports/sales-register/', views.sales_register_view, name='sales_register'),
+    path('reports/purchase-register/', views.purchase_register_view, name='purchase_register'),
 ]

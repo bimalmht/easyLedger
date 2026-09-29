@@ -121,15 +121,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.submitQuickCustomer = function(e) {
     e.preventDefault();
+    const panInput = document.getElementById('modalCustPan');
+    const panVal = panInput.value.trim();
+    const panErr = document.getElementById('modalCustPanErr');
+
+    // Nepal IRD Validation: If provided, PAN must be exactly 9 numeric digits
+    if (panVal && !/^\d{9}$/.test(panVal)) {
+      panInput.classList.add('border-rose-500', 'bg-rose-50');
+      if (panErr) {
+        panErr.innerText = "PAN must be exactly 9 numeric digits.";
+        panErr.classList.remove('hidden');
+      } else {
+        alert("PAN must be exactly 9 numeric digits.");
+      }
+      panInput.focus();
+      return;
+    } else {
+      panInput.classList.remove('border-rose-500', 'bg-rose-50');
+      if (panErr) panErr.classList.add('hidden');
+    }
+
     const btn = document.getElementById('btnSaveCust');
     btn.disabled = true;
     btn.innerText = 'Saving...';
 
     const formData = new FormData();
     formData.append('name', document.getElementById('modalCustName').value.trim());
-    formData.append('tax_number', document.getElementById('modalCustPan').value.trim());
-    formData.append('address', document.getElementById('modalCustAddress').value.trim());
+    formData.append('tax_number', panVal);
     formData.append('phone', document.getElementById('modalCustPhone').value.trim());
+    formData.append('email', document.getElementById('modalCustEmail').value.trim());
+    formData.append('address', document.getElementById('modalCustAddress').value.trim());
+    formData.append('is_vat_exempt', document.getElementById('modalCustExempt').checked);
 
     fetch('/api/customers/quick-create/', {
       method: 'POST',
@@ -150,6 +172,60 @@ document.addEventListener('DOMContentLoaded', () => {
     .catch(err => {
       btn.disabled = false;
       btn.innerText = 'Save to Master & Select';
+      alert("Failed to connect to server: " + err);
+    });
+  };
+
+  window.submitQuickProduct = function(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btnSaveProd');
+    btn.disabled = true;
+    btn.innerText = 'Saving...';
+
+    const formData = new FormData();
+    formData.append('name', document.getElementById('modalProdName').value.trim());
+    formData.append('hs_code', document.getElementById('modalProdHs').value.trim());
+    formData.append('selling_price', document.getElementById('modalProdPrice').value.trim());
+    formData.append('apply_vat', document.getElementById('modalProdVat').checked);
+    formData.append('apply_excise', document.getElementById('modalProdExcise').checked);
+
+    fetch('/api/products/quick-create/', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value },
+      body: formData
+    })
+    .then(r => r.json())
+    .then(res => {
+      btn.disabled = false;
+      btn.innerText = 'Save to Master & Use';
+      if (res.status === 'success') {
+        const p = res.product;
+        let targetRow = targetRowForNewProduct;
+
+        if (!targetRow) {
+          const rows = document.querySelectorAll('#itemsBody tr');
+          for (let r of rows) {
+            if (!r.querySelector('.productId').value) {
+              targetRow = r;
+              break;
+            }
+          }
+          if (!targetRow) {
+            addInvoiceRow();
+            const allRows = document.querySelectorAll('#itemsBody tr');
+            targetRow = allRows[allRows.length - 1];
+          }
+        }
+
+        applyProductToRow(p, targetRow);
+        closeProductModal();
+      } else {
+        alert(res.message);
+      }
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.innerText = 'Save to Master & Use';
       alert("Failed to connect to server: " + err);
     });
   };
@@ -184,6 +260,8 @@ document.addEventListener('DOMContentLoaded', () => {
     formData.append('name', document.getElementById('modalProdName').value.trim());
     formData.append('hs_code', document.getElementById('modalProdHs').value.trim());
     formData.append('selling_price', document.getElementById('modalProdPrice').value.trim());
+    formData.append('apply_vat', document.getElementById('modalProdVat').checked);
+    formData.append('apply_excise', document.getElementById('modalProdExcise').checked);
 
     fetch('/api/products/quick-create/', {
       method: 'POST',
