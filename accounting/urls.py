@@ -83,4 +83,14 @@ urlpatterns = [
     # Reports
     path('reports/sales-register/', views.sales_register_view, name='sales_register'),
     path('reports/purchase-register/', views.purchase_register_view, name='purchase_register'),
+    
+    # Debit Note & Purchase Return Endpoints
+    path('debit-notes/', views.debit_note_list_view, name='debit-note-list'),
+    path('debit-notes/create/', views.debit_note_create_view, name='debit-note-create'),
+    path('debit-notes/<uuid:debit_note_id>/', views.debit_note_detail_view, name='debit-note-detail'),
+    path('api/purchase-invoices/<uuid:invoice_id>/items/', views.purchase_invoice_items_api, name='purchase-invoice-items-api'),
+
+    # Statutory Return Registers (Annex 6 & Annex 8)
+    path('reports/sales-return-register/', views.sales_return_register_view, name='sales-return-register'),
+    path('reports/purchase-return-register/', views.purchase_return_register_view, name='purchase-return-register'),
 ]

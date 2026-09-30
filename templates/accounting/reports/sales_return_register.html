@@ -1,0 +1,127 @@
+{% extends 'base.html' %}
+{% block title %}Sales Return Register (Annex 6) - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="w-full max-w-7xl mx-auto px-4 py-6 text-xs">
+  <div class="flex justify-between items-center mb-4">
+    <div>
+      <h1 class="text-lg font-bold text-slate-900">Sales Return Register (अनुसूची ६ - क्रेडिट नोट खाता)</h1>
+      <p class="text-slate-500 font-mono text-[11px]">{{ request.company.name }} | PAN: {{ request.company.pan_number|default:"N/A" }}</p>
+    </div>
+    <div class="flex gap-2">
+      <button onclick="window.print()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-semibold transition-colors">Print</button>
+      <button onclick="exportSalesReturnToExcel()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold transition-colors flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        Export to Excel
+      </button>
+    </div>
+  </div>
+
+  <!-- Filter Bar -->
+  <form method="GET" class="flex gap-2 mb-4 bg-white p-3 rounded-lg border border-slate-200">
+    <div class="flex items-center gap-1">
+      <label class="font-semibold text-slate-600">From:</label>
+      <input type="date" name="from_date" value="{{ from_date }}" class="border rounded p-1.5 font-mono">
+    </div>
+    <div class="flex items-center gap-1">
+      <label class="font-semibold text-slate-600">To:</label>
+      <input type="date" name="to_date" value="{{ to_date }}" class="border rounded p-1.5 font-mono">
+    </div>
+    <button type="submit" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded">Filter</button>
+  </form>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-xs">
+    <table class="w-full text-left border-collapse" id="salesReturnTable">
+      <thead class="bg-slate-50 text-[10.5px] font-bold text-slate-700 border-b">
+        <tr>
+          <th class="p-2">Date (BS)</th>
+          <th class="p-2">Date (AD)</th>
+          <th class="p-2">Credit Note No</th>
+          <th class="p-2">Ref Invoice No</th>
+          <th class="p-2">Buyer Name</th>
+          <th class="p-2">Buyer PAN</th>
+          <th class="p-2 text-right">Taxable Return (Rs.)</th>
+          <th class="p-2 text-right">VAT Reversal (13%)</th>
+          <th class="p-2 text-right">Total Adjustment (Rs.)</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 font-mono text-[11px]">
+        {% for cn in credit_notes %}
+        <tr class="hover:bg-slate-50">
+          <td class="p-2 font-bold">{{ cn.display_bs_date }}</td>
+          <td class="p-2 text-slate-500">{{ cn.date|date:"Y-m-d" }}</td>
+          <td class="p-2 font-bold text-indigo-600">{{ cn.credit_note_number }}</td>
+          <td class="p-2 text-slate-700">{{ cn.original_invoice.invoice_number }}</td>
+          <td class="p-2 font-sans">{{ cn.customer.name }}</td>
+          <td class="p-2">{{ cn.customer.tax_number|default:"N/A" }}</td>
+          <td class="p-2 text-right">{{ cn.taxable_subtotal|floatformat:2 }}</td>
+          <td class="p-2 text-right">{{ cn.tax_amount|floatformat:2 }}</td>
+          <td class="p-2 text-right font-bold text-slate-900">{{ cn.grand_total|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="9" class="p-4 text-center text-slate-400 italic">No sales return transactions found for this period.</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="bg-slate-50 border-t-2 border-slate-300 font-mono font-bold text-[11px]">
+        <tr>
+          <td colspan="6" class="p-2 text-right font-sans">Total:</td>
+          <td class="p-2 text-right">{{ totals.total_taxable|default:"0.00"|floatformat:2 }}</td>
+          <td class="p-2 text-right">{{ totals.total_vat|default:"0.00"|floatformat:2 }}</td>
+          <td class="p-2 text-right text-indigo-700">{{ totals.total_grand|default:"0.00"|floatformat:2 }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<script>
+function exportSalesReturnToExcel() {
+  const companyName = "{{ request.company.name|escapejs }}";
+  const companyPan = "{{ request.company.pan_number|default:'N/A'|escapejs }}";
+  const fromDate = "{{ from_date|default:'All'|escapejs }}";
+  const toDate = "{{ to_date|default:'All'|escapejs }}";
+
+  const wsData = [
+    [companyName.toUpperCase()],
+    [`PAN: ${companyPan}`],
+    ["SALES RETURN REGISTER (SCHEDULE 6 / अनुसूची ६ - क्रेडिट नोट खाता)"],
+    [`Tax Period: From ${fromDate} To ${toDate}`],
+    []
+  ];
+
+  wsData.push([
+    "Date (BS)", "Date (AD)", "Credit Note No", "Ref Invoice No",
+    "Buyer Name", "Buyer PAN", "Taxable Return (Rs.)", "VAT (13%)", "Grand Total (Rs.)"
+  ]);
+
+  document.querySelectorAll("#salesReturnTable tbody tr").forEach(tr => {
+    const c = tr.querySelectorAll("td");
+    if (c.length >= 9) {
+      wsData.push([
+        c[0].innerText.trim(), c[1].innerText.trim(), c[2].innerText.trim(), c[3].innerText.trim(),
+        c[4].innerText.trim(), c[5].innerText.trim(),
+        parseFloat(c[6].innerText.replace(/,/g, '')) || 0.00,
+        parseFloat(c[7].innerText.replace(/,/g, '')) || 0.00,
+        parseFloat(c[8].innerText.replace(/,/g, '')) || 0.00
+      ]);
+    }
+  });
+
+  const foot = document.querySelectorAll("#salesReturnTable tfoot tr td");
+  if (foot.length >= 4) {
+    wsData.push([
+      "Total", "", "", "", "", "",
+      parseFloat(foot[1].innerText.replace(/,/g, '')) || 0.00,
+      parseFloat(foot[2].innerText.replace(/,/g, '')) || 0.00,
+      parseFloat(foot[3].innerText.replace(/,/g, '')) || 0.00
+    ]);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Sales Return Register");
+  XLSX.writeFile(wb, `Sales_Return_Annex_6_${companyPan}.xlsx`);
+}
+</script>
+{% endblock %}

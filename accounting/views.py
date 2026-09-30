@@ -44,6 +44,9 @@ from .models import (
     StockLedgerEntry,
     Voucher,
     VoucherEntry,
+    DebitNote,
+    DebitNoteItem,
+    DebitNoteTemplate,
 )
 
 # ==============================================================================
@@ -2760,6 +2763,412 @@ def purchase_register_view(request):
         "accounting/reports/purchase_register.html",
         {
             "purchases": purchases,
+            "totals": totals,
+            "from_date": from_date,
+            "to_date": to_date,
+        },
+    )
+
+# ==============================================================================
+# Purchase Return & Debit Note (Nepal IRD Schedule 8)
+# ==============================================================================
+
+@login_required
+@require_GET
+def debit_note_list_view(request):
+    debit_notes = DebitNote.objects.filter(company=request.company).select_related(
+        "supplier", "original_purchase_invoice"
+    ).order_by("-date", "-created_at")
+    return render(request, "accounting/debit_note_list.html", {"debit_notes": debit_notes})
+
+
+@login_required
+@require_GET
+def purchase_invoice_items_api(request, invoice_id):
+    """Returns line items with unit landed costs for the selected purchase invoice."""
+    pinv = get_object_or_404(PurchaseInvoice, id=invoice_id, company=request.company)
+    items = []
+    for item in pinv.items.all():
+        items.append({
+            "product_id": str(item.product.id),
+            "description": item.product.name,
+            "hs_code": item.product.hs_code or "-",
+            "quantity": float(item.quantity),
+            "rate": float(item.rate),
+            "landing_cost_per_unit": float(item.landing_cost_per_unit or item.rate),
+            "vat_rate": float(item.vat_rate),
+            "excise_rate": float(item.excise_rate),
+            "taxable": float(item.rate * item.quantity),
+        })
+    return JsonResponse({
+        "status": "success",
+        "supplier_name": pinv.supplier.name,
+        "supplier_pan": pinv.supplier.pan_vat_number or "N/A",
+        "bill_no": pinv.supplier_invoice_no,
+        "bill_date": pinv.supplier_invoice_date.strftime("%Y-%m-%d"),
+        "items": items,
+    })
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def debit_note_create_view(request):
+    comp = request.company
+
+    if request.method == "POST":
+        purchase_invoice_id = request.POST.get("purchase_invoice_id")
+        date_val = request.POST.get("date")
+        reason = request.POST.get("reason", "GOODS_RETURN")
+        reason_details = request.POST.get("reason_details", "").strip()
+
+        original_pinv = get_object_or_404(PurchaseInvoice, id=purchase_invoice_id, company=comp)
+        supplier = original_pinv.supplier
+        warehouse = original_pinv.warehouse
+
+        product_ids = request.POST.getlist("product_id[]")
+        descriptions = request.POST.getlist("description[]")
+        hs_codes = request.POST.getlist("hs_code[]")
+        quantities = request.POST.getlist("quantity[]")
+        rates = request.POST.getlist("rate[]")
+        unit_landeds = request.POST.getlist("unit_landed[]")
+        vat_rates = request.POST.getlist("vat_rate[]")
+        excise_rates = request.POST.getlist("excise_rate[]")
+
+        valid_items = []
+        total_taxable = Decimal("0.00")
+        total_excise = Decimal("0.00")
+        total_vat = Decimal("0.00")
+        total_inventory_cost_reversed = Decimal("0.0000")
+
+        for i in range(len(product_ids)):
+            pid = product_ids[i].strip()
+            qty = Decimal(quantities[i] or "0.00")
+            rate = Decimal(rates[i] or "0.00")
+            landed = Decimal(unit_landeds[i] or str(rate))
+            v_rate = Decimal(vat_rates[i] or "13.00")
+            e_rate = Decimal(excise_rates[i] or "0.00")
+
+            if not pid or qty <= Decimal("0.00"):
+                continue
+
+            product = get_object_or_404(Product, id=pid, company=comp)
+            line_taxable = (qty * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            line_excise = (line_taxable * (e_rate / Decimal("100.00"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            line_vat = ((line_taxable + line_excise) * (v_rate / Decimal("100.00"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            line_total = line_taxable + line_excise + line_vat
+            inventory_val = (qty * landed).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+            total_taxable += line_taxable
+            total_excise += line_excise
+            total_vat += line_vat
+            total_inventory_cost_reversed += inventory_val
+
+            valid_items.append({
+                "product": product,
+                "description": descriptions[i].strip() or product.name,
+                "hs_code": hs_codes[i] if i < len(hs_codes) else "-",
+                "quantity": qty,
+                "rate": rate,
+                "landed": landed,
+                "line_taxable": line_taxable,
+                "line_excise": line_excise,
+                "line_vat": line_vat,
+                "line_total": line_total,
+            })
+
+        if not valid_items:
+            messages.error(request, "A Debit Note must include at least one returned line item.")
+            return redirect("debit-note-create")
+
+        grand_total = total_taxable + total_excise + total_vat
+
+        dn_date_bs = ""
+        if date_val:
+            try:
+                dn_date_bs = ad_to_bs(date_val)
+            except Exception:
+                dn_date_bs = ""
+
+        with transaction.atomic():
+            ym = timezone.now().strftime("%Y%m")
+            dn_count = DebitNote.objects.filter(company=comp, debit_note_number__startswith=f"DN-{ym}").count() + 1
+            debit_note_number = f"DN-{ym}-{dn_count:04d}"
+
+            jv_count = Transaction.objects.filter(company=comp, voucher_number__startswith=f"JV-{ym}").count() + 1
+            jv_number = f"JV-{ym}-{jv_count:04d}"
+
+            # 1. Post Double-Entry Journal Reversal
+            txn = Transaction.objects.create(
+                company=comp,
+                date=date_val,
+                voucher_number=jv_number,
+                reference=debit_note_number,
+                narration=f"Debit Note {debit_note_number} purchase return to {supplier.name} against Bill #{original_pinv.supplier_invoice_no}",
+            )
+
+            inventory_account = Account.objects.filter(company=comp, code="1040").first()
+            vat_input_account = Account.objects.filter(company=comp, code="1050").first()
+            ap_account = supplier.ledger_account or Account.objects.filter(company=comp, code="2010").first()
+
+            # Debit Supplier AP (reducing liability)
+            JournalEntry.objects.create(
+                transaction=txn,
+                account=ap_account,
+                debit=grand_total,
+                credit=Decimal("0.00"),
+                line_description=f"Debit Note {debit_note_number} reduction in payable",
+            )
+
+            # Credit Inventory Stock (at original capitalized landed cost)
+            JournalEntry.objects.create(
+                transaction=txn,
+                account=inventory_account,
+                debit=Decimal("0.00"),
+                credit=total_inventory_cost_reversed,
+                line_description=f"Stock reversal at landed cost on {debit_note_number}",
+            )
+
+            # Credit VAT Input Account (reversing input tax credit claimed)
+            if total_vat > Decimal("0.00") and vat_input_account:
+                JournalEntry.objects.create(
+                    transaction=txn,
+                    account=vat_input_account,
+                    debit=Decimal("0.00"),
+                    credit=total_vat,
+                    line_description=f"Input VAT reversal on purchase return {debit_note_number}",
+                )
+
+            # 2. Save Debit Note Header
+            dn = DebitNote.objects.create(
+                company=comp,
+                debit_note_number=debit_note_number,
+                original_purchase_invoice=original_pinv,
+                supplier=supplier,
+                date=date_val,
+                debit_note_date_bs=dn_date_bs,
+                reason=reason,
+                reason_details=reason_details,
+                taxable_subtotal=total_taxable,
+                excise_amount=total_excise,
+                tax_rate=Decimal("13.00"),
+                tax_amount=total_vat,
+                grand_total=grand_total,
+                total_inventory_cost_reversed=total_inventory_cost_reversed,
+                transaction=txn,
+                created_by=request.user,
+            )
+
+            # 3. Save Items and Write Outward Stock Ledger Entries
+            for item in valid_items:
+                DebitNoteItem.objects.create(
+                    debit_note=dn,
+                    product=item["product"],
+                    description=item["description"],
+                    hs_code=item["hs_code"],
+                    quantity=item["quantity"],
+                    rate=item["rate"],
+                    original_unit_landed_cost=item["landed"],
+                    taxable_amount=item["line_taxable"],
+                    excise_amount=item["line_excise"],
+                    vat_amount=item["line_vat"],
+                    line_total=item["line_total"],
+                )
+
+                last_entry = StockLedgerEntry.objects.filter(
+                    company=comp, product=item["product"], warehouse=warehouse
+                ).order_by("-entry_date", "-created_at").first()
+
+                prev_qty = last_entry.balance_quantity if last_entry else Decimal("0.000")
+                prev_val = last_entry.balance_value if last_entry else Decimal("0.0000")
+                line_inv_val = (item["quantity"] * item["landed"]).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+                StockLedgerEntry.objects.create(
+                    company=comp,
+                    product=item["product"],
+                    warehouse=warehouse,
+                    entry_date=date_val,
+                    entry_type=StockLedgerEntry.EntryType.PURCHASE_RETURN,
+                    reference_id=dn.id,
+                    reference_number=debit_note_number,
+                    in_quantity=Decimal("0.000"),
+                    out_quantity=item["quantity"],
+                    unit_cost=item["landed"],
+                    balance_quantity=prev_qty - item["quantity"],
+                    balance_value=prev_val - line_inv_val,
+                )
+
+            # 4. Audit Log
+            AuditLog.objects.create(
+                company=comp,
+                user=request.user,
+                username=request.user.username,
+                action="CREATE",
+                table_name="DebitNote",
+                record_id=debit_note_number,
+                ip_address=request.META.get("REMOTE_ADDR"),
+                details=f"Issued Schedule 8 Debit Note {debit_note_number} to {supplier.name} for Rs. {grand_total} (BS: {dn_date_bs})",
+            )
+
+        messages.success(request, f"Debit Note {debit_note_number} generated and stock reversed.")
+        return redirect("debit-note-detail", debit_note_id=dn.id)
+
+    purchases = PurchaseInvoice.objects.filter(company=comp, is_locked=True).order_by("-supplier_invoice_date", "-created_at")[:50]
+    return render(
+        request,
+        "accounting/debit_note_form.html",
+        {"purchases": purchases, "reasons": DebitNote.RETURN_REASONS},
+    )
+
+
+@login_required
+@require_GET
+def debit_note_detail_view(request, debit_note_id):
+    dn = get_object_or_404(
+        DebitNote.objects.select_related(
+            "supplier", "original_purchase_invoice", "created_by"
+        ).prefetch_related("items"),
+        id=debit_note_id,
+        company=request.company,
+    )
+
+    if request.GET.get("print") == "true":
+        dn.print_count += 1
+        dn.save(update_fields=["print_count"])
+
+        AuditLog.objects.create(
+            company=request.company,
+            user=request.user,
+            username=request.user.username,
+            action="REPRINT" if dn.print_count > 1 else "CREATE",
+            table_name="DebitNote",
+            record_id=dn.debit_note_number,
+            ip_address=request.META.get("REMOTE_ADDR"),
+            details=f"Debit Note {dn.debit_note_number} printed. Total prints: {dn.print_count}",
+        )
+        return JsonResponse({"status": "success", "print_count": dn.print_count})
+
+    if dn.print_count == 0:
+        copy_text = "Original (विक्रेताको प्रति)"
+        dn_title_nepali = "डेबिट नोट"
+        dn_title_english = "DEBIT NOTE"
+    else:
+        copy_text = f"COPY OF ORIGINAL (प्रतिलिपि) #{dn.print_count}"
+        dn_title_nepali = "डेबिट नोट (प्रतिलिपि)"
+        dn_title_english = "DEBIT NOTE (COPY)"
+
+    template = (
+        DebitNoteTemplate.objects.filter(company=request.company, is_default=True).first()
+        or DebitNoteTemplate.objects.filter(company=request.company).first()
+    )
+    all_templates = DebitNoteTemplate.objects.filter(company=request.company)
+
+    return render(
+        request,
+        "accounting/debit_note_detail.html",
+        {
+            "dn": dn,
+            "company": request.company,
+            "template": template,
+            "all_templates": all_templates,
+            "amount_in_words": number_to_words(dn.grand_total),
+            "copy_text": copy_text,
+            "dn_title_nepali": dn_title_nepali,
+            "dn_title_english": dn_title_english,
+            "print_timestamp": timezone.now(),
+        },
+    )
+
+
+# ==============================================================================
+# Statutory Return Registers: Schedule 6 (Sales Return) & Schedule 8 (Purchase Return)
+# ==============================================================================
+
+@login_required
+def sales_return_register_view(request):
+    """
+    Nepal IRD Schedule 6 / Annex 6 - Credit Note Register (क्रेडिट नोट खाता)
+    """
+    comp = request.company
+    from_date = request.GET.get("from_date", "").strip()
+    to_date = request.GET.get("to_date", "").strip()
+
+    cns = CreditNote.objects.filter(company=comp).select_related("customer", "original_invoice").order_by("date", "id")
+
+    if from_date:
+        cns = cns.filter(date__gte=from_date)
+    if to_date:
+        cns = cns.filter(date__lte=to_date)
+
+    totals = cns.aggregate(
+        total_taxable=Sum("taxable_subtotal"),
+        total_vat=Sum("tax_amount"),
+        total_grand=Sum("grand_total"),
+    )
+
+    cns_list = list(cns)
+    for c in cns_list:
+        if c.credit_note_date_bs:
+            c.display_bs_date = c.credit_note_date_bs
+        elif c.date:
+            try:
+                c.display_bs_date = ad_to_bs(c.date)
+            except Exception:
+                c.display_bs_date = "-"
+        else:
+            c.display_bs_date = "-"
+
+    return render(
+        request,
+        "accounting/reports/sales_return_register.html",
+        {
+            "credit_notes": cns_list,
+            "totals": totals,
+            "from_date": from_date,
+            "to_date": to_date,
+        },
+    )
+
+
+@login_required
+def purchase_return_register_view(request):
+    """
+    Nepal IRD Schedule 8 / Annex 8 - Debit Note Register (डेबिट नोट खाता)
+    """
+    comp = request.company
+    from_date = request.GET.get("from_date", "").strip()
+    to_date = request.GET.get("to_date", "").strip()
+
+    dns = DebitNote.objects.filter(company=comp).select_related("supplier", "original_purchase_invoice").order_by("date", "id")
+
+    if from_date:
+        dns = dns.filter(date__gte=from_date)
+    if to_date:
+        dns = dns.filter(date__lte=to_date)
+
+    totals = dns.aggregate(
+        total_taxable=Sum("taxable_subtotal"),
+        total_excise=Sum("excise_amount"),
+        total_vat=Sum("tax_amount"),
+        total_grand=Sum("grand_total"),
+    )
+
+    dns_list = list(dns)
+    for d in dns_list:
+        if d.debit_note_date_bs:
+            d.display_bs_date = d.debit_note_date_bs
+        elif d.date:
+            try:
+                d.display_bs_date = ad_to_bs(d.date)
+            except Exception:
+                d.display_bs_date = "-"
+        else:
+            d.display_bs_date = "-"
+
+    return render(
+        request,
+        "accounting/reports/purchase_return_register.html",
+        {
+            "debit_notes": dns_list,
             "totals": totals,
             "from_date": from_date,
             "to_date": to_date,

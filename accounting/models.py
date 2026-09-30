@@ -643,3 +643,107 @@ class CompanySetting(models.Model):
 
     def __str__(self):
         return f"Settings - {self.company.name}"
+    
+# ==============================================================================
+# 10. Purchase Return & Debit Note (Nepal IRD Schedule 8 / अनुसूची–८)
+# ==============================================================================
+
+class DebitNote(models.Model):
+    RETURN_REASONS = [
+        ("GOODS_RETURN", "Goods Returned to Supplier"),
+        ("DAMAGED_EXPIRED", "Damaged, Defective or Expired Goods"),
+        ("RATE_DIFFERENCE", "Price / Rate Overcharge Correction"),
+        ("DISCOUNT_POST_PURCHASE", "Post-Purchase Rebate / Discount"),
+        ("OTHER", "Other Regulatory Adjustment"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="debit_notes")
+    debit_note_number = models.CharField(max_length=50, db_index=True)
+    original_purchase_invoice = models.ForeignKey(
+        PurchaseInvoice, on_delete=models.PROTECT, related_name="debit_notes"
+    )
+    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="debit_notes")
+    date = models.DateField(default=timezone.now, db_index=True)
+    debit_note_date_bs = models.CharField(max_length=10, blank=True, help_text="Format: YYYY-MM-DD")
+    reason = models.CharField(max_length=50, choices=RETURN_REASONS, default="GOODS_RETURN")
+    reason_details = models.TextField(blank=True)
+
+    # Financial breakdown
+    taxable_subtotal = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    excise_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('13.00'))
+    tax_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    grand_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    total_inventory_cost_reversed = models.DecimalField(max_digits=16, decimal_places=4, default=Decimal('0.0000'))
+
+    transaction = models.OneToOneField(
+        Transaction,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="debit_note"
+    )
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="created_debit_notes", null=True, blank=True)
+    print_count = models.PositiveIntegerField(default=0, verbose_name="Times Printed")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("company", "debit_note_number")
+        ordering = ["-date", "-created_at"]
+
+    def __str__(self):
+        return f"{self.debit_note_number} (Ref: {self.original_purchase_invoice.invoice_number})"
+
+
+class DebitNoteItem(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    debit_note = models.ForeignKey(DebitNote, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="debit_note_items")
+    description = models.CharField(max_length=200)
+    hs_code = models.CharField(max_length=20, blank=True, default="-")
+    quantity = models.DecimalField(max_digits=12, decimal_places=3, validators=[MinValueValidator(Decimal('0.001'))])
+    rate = models.DecimalField(max_digits=14, decimal_places=4, validators=[MinValueValidator(Decimal('0.0001'))])
+    original_unit_landed_cost = models.DecimalField(max_digits=14, decimal_places=4, default=Decimal('0.0000'))
+    taxable_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    excise_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    vat_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    line_total = models.DecimalField(max_digits=14, decimal_places=2)
+
+    def __str__(self):
+        return f"{self.description} ({self.quantity} @ {self.rate})"
+
+
+class DebitNoteTemplate(models.Model):
+    PAGE_SIZE_CHOICES = [
+        ("A4_PORTRAIT", "A4 Portrait (210mm x 297mm)"),
+        ("A4_LANDSCAPE", "A4 Landscape (297mm x 210mm)"),
+        ("A5_PORTRAIT", "A5 Portrait (148mm x 210mm)"),
+        ("A5_LANDSCAPE", "A5 Landscape (210mm x 148mm)"),
+    ]
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="debit_note_templates")
+    title = models.CharField(max_length=100, default="Standard Nepal IRD Schedule 8 Debit Note")
+    page_size = models.CharField(max_length=20, choices=PAGE_SIZE_CHOICES, default="A4_PORTRAIT")
+    is_default = models.BooleanField(default=False)
+    show_hs_code = models.BooleanField(default=True)
+    header_subtitle = models.CharField(
+        max_length=150, 
+        default="अनुसूची–८ (नियम १७ सँग सम्बन्धित) / Schedule 8 (Rule 17), VAT Rules 2053"
+    )
+    declaration_text = models.TextField(
+        default="We certify that this debit note reflects the actual return or price adjustment of goods/services described."
+    )
+    terms_and_conditions = models.TextField(
+        blank=True,
+        default="1. Debit adjustment subject to vendor ledger reconciliation.\n2. Applicable against outstanding payable bills."
+    )
+    footer_signature_label = models.CharField(max_length=100, default="Authorized Signatory / अधिकृत हस्ताक्षर")
+
+    def save(self, *args, **kwargs):
+        if self.is_default:
+            DebitNoteTemplate.objects.filter(company=self.company).exclude(id=self.id).update(is_default=False)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.title} ({self.get_page_size_display()}) - {self.company.name}"

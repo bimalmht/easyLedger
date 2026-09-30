@@ -1,0 +1,188 @@
+{% extends 'base.html' %}
+
+{% block title %}Issue Debit Note (Schedule 8) - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+  <div class="pb-3 mb-4 border-b border-slate-200 flex justify-between items-center">
+    <div>
+      <h1 class="text-xl font-bold text-slate-900">Issue Debit Note</h1>
+      <p class="text-xs text-slate-500">Nepal IRD Schedule 8 (अनुसूची-८) Compliant Purchase Return Voucher</p>
+    </div>
+    <a href="{% url 'debit-note-list' %}" class="text-xs font-semibold text-slate-600 hover:text-indigo-600">&larr; Back to List</a>
+  </div>
+
+  <form method="POST" id="dnForm" class="space-y-6 text-xs">
+    {% csrf_token %}
+
+    <!-- Top Fields: Invoice Selection & Reason -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <label class="block font-semibold text-slate-700 mb-1">Original Purchase Invoice (Mandatory Ref)</label>
+        <select name="purchase_invoice_id" id="purchaseInvoiceSelect" onchange="fetchPurchaseItems(this.value)" required class="w-full border border-slate-300 rounded-lg p-2.5 bg-white">
+          <option value="">-- Select Original Purchase Bill --</option>
+          {% for p in purchases %}
+            <option value="{{ p.id }}">
+              {{ p.invoice_number }} | {{ p.supplier.name }} (Bill #{{ p.supplier_invoice_no }})
+            </option>
+          {% endfor %}
+        </select>
+        <div id="supplierSummary" class="text-[11px] text-slate-500 mt-1 font-mono"></div>
+      </div>
+
+      <div>
+        <label class="block font-semibold text-slate-700 mb-1">Debit Note Date</label>
+        <input type="date" name="date" value="{% now 'Y-m-d' %}" required class="w-full border border-slate-300 rounded-lg p-2.5">
+      </div>
+
+      <div>
+        <label class="block font-semibold text-slate-700 mb-1">Reason for Issuance (डेबिट नोट जारी गर्नुको कारण)</label>
+        <select name="reason" required class="w-full border border-slate-300 rounded-lg p-2.5 bg-white">
+          {% for code, label in reasons %}
+            <option value="{{ code }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <label class="block font-semibold text-slate-700 mb-1">Reason Remarks / Specific Details</label>
+      <input type="text" name="reason_details" placeholder="e.g. Returned 2 damaged containers with broken packaging" class="w-full border border-slate-300 rounded-lg p-2.5">
+    </div>
+
+    <!-- Items to Return Table -->
+    <div>
+      <div class="flex justify-between items-center mb-2">
+        <h3 class="font-bold text-slate-800 text-sm">Goods to Return / Reverse</h3>
+        <span class="text-xs text-slate-400">Inventory will be reduced at the original capitalized unit landed cost</span>
+      </div>
+
+      <table class="w-full border border-slate-200 rounded-lg overflow-hidden" id="itemsTable">
+        <thead class="bg-slate-50 border-b border-slate-200 font-bold text-slate-700">
+          <tr>
+            <th class="p-2 text-left w-1/3">Description of Goods</th>
+            <th class="p-2 text-center w-20">HS Code</th>
+            <th class="p-2 text-right w-20">Return Qty</th>
+            <th class="p-2 text-right w-24">Rate (Rs.)</th>
+            <th class="p-2 text-right w-24">Unit Landed</th>
+            <th class="p-2 text-right w-24">Taxable</th>
+            <th class="p-2 text-right w-20">VAT (13%)</th>
+            <th class="p-2 text-right w-24">Total</th>
+            <th class="p-2 text-center w-10"></th>
+          </tr>
+        </thead>
+        <tbody id="itemsBody" class="divide-y divide-slate-100 font-mono">
+          <tr>
+            <td colspan="9" class="p-6 text-center text-slate-400 font-sans">
+              Select an original purchase invoice above to load the items automatically.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Calculation Summary -->
+    <div class="flex justify-end">
+      <div class="w-80 space-y-1.5 font-mono text-xs border border-slate-200 p-4 rounded-xl bg-slate-50">
+        <div class="flex justify-between"><span>Taxable Return Base:</span><span id="displayTaxable">0.00</span></div>
+        <div class="flex justify-between"><span>Excise Duty:</span><span id="displayExcise">0.00</span></div>
+        <div class="flex justify-between"><span>Adjusted Input VAT:</span><span id="displayVat">0.00</span></div>
+        <div class="flex justify-between font-bold text-sm text-rose-600 border-t pt-1">
+          <span>Total Debit Adjustment:</span><span id="displayGrand">Rs. 0.00</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-2 pt-4 border-t border-slate-200">
+      <a href="{% url 'debit-note-list' %}" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</a>
+      <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm">
+        Post & Generate Schedule 8 Debit Note
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+function fetchPurchaseItems(invoiceId) {
+  if (!invoiceId) {
+    document.getElementById('itemsBody').innerHTML = `
+      <tr><td colspan="9" class="p-6 text-center text-slate-400 font-sans">Select an original purchase invoice above to load items.</td></tr>
+    `;
+    document.getElementById('supplierSummary').innerText = '';
+    calculateTotals();
+    return;
+  }
+
+  fetch(`/api/purchase-invoices/${invoiceId}/items/`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('supplierSummary').innerText = `Supplier: ${data.supplier_name} | PAN: ${data.supplier_pan} | Bill #${data.bill_no} (${data.bill_date})`;
+
+      const tbody = document.getElementById('itemsBody');
+      tbody.innerHTML = '';
+
+      data.items.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-slate-100';
+        tr.innerHTML = `
+          <td class="p-2">
+            <input type="text" name="description[]" value="${item.description}" class="w-full border border-slate-300 rounded p-1 text-xs" required>
+            <input type="hidden" name="product_id[]" value="${item.product_id}">
+            <input type="hidden" name="unit_landed[]" value="${item.landing_cost_per_unit}">
+            <input type="hidden" name="vat_rate[]" class="vatRate" value="${item.vat_rate}">
+            <input type="hidden" name="excise_rate[]" class="exciseRate" value="${item.excise_rate}">
+          </td>
+          <td class="p-2"><input type="text" name="hs_code[]" value="${item.hs_code}" class="w-full border border-slate-300 rounded p-1 text-xs text-center font-mono"></td>
+          <td class="p-2"><input type="number" step="0.001" min="0.001" max="${item.quantity}" name="quantity[]" value="${item.quantity}" oninput="calculateTotals()" class="qty w-full border border-slate-300 rounded p-1 text-xs text-right font-mono" required></td>
+          <td class="p-2"><input type="number" step="0.01" name="rate[]" value="${item.rate.toFixed(2)}" oninput="calculateTotals()" class="rate w-full border border-slate-300 rounded p-1 text-xs text-right font-mono" required></td>
+          <td class="p-2 text-right font-mono text-slate-500">${item.landing_cost_per_unit.toFixed(4)}</td>
+          <td class="p-2 text-right font-mono lineTaxable">0.00</td>
+          <td class="p-2 text-right font-mono lineVat">0.00</td>
+          <td class="p-2 text-right font-mono font-bold lineTotal">0.00</td>
+          <td class="p-2 text-center"><button type="button" onclick="this.closest('tr').remove(); calculateTotals();" class="text-rose-500 font-bold">&times;</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      calculateTotals();
+    });
+}
+
+function calculateTotals() {
+  let grossTaxable = 0;
+  let totalExcise = 0;
+  let totalVat = 0;
+
+  document.querySelectorAll('#itemsBody tr').forEach(row => {
+    const qtyInput = row.querySelector('.qty');
+    const rateInput = row.querySelector('.rate');
+    const vatRate = parseFloat(row.querySelector('.vatRate')?.value) || 0.0;
+    const exciseRate = parseFloat(row.querySelector('.exciseRate')?.value) || 0.0;
+
+    if (qtyInput && rateInput) {
+      const qty = parseFloat(qtyInput.value) || 0;
+      const rate = parseFloat(rateInput.value) || 0;
+      const taxable = qty * rate;
+      const excise = taxable * (exciseRate / 100);
+      const vat = (taxable + excise) * (vatRate / 100);
+      const total = taxable + excise + vat;
+
+      row.querySelector('.lineTaxable').innerText = taxable.toFixed(2);
+      row.querySelector('.lineVat').innerText = vat.toFixed(2);
+      row.querySelector('.lineTotal').innerText = total.toFixed(2);
+
+      grossTaxable += taxable;
+      totalExcise += excise;
+      totalVat += vat;
+    }
+  });
+
+  const grandTotal = grossTaxable + totalExcise + totalVat;
+
+  document.getElementById('displayTaxable').innerText = grossTaxable.toFixed(2);
+  document.getElementById('displayExcise').innerText = totalExcise.toFixed(2);
+  document.getElementById('displayVat').innerText = totalVat.toFixed(2);
+  document.getElementById('displayGrand').innerText = `Rs. ${grandTotal.toFixed(2)}`;
+}
+</script>
+{% endblock %}
