@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}Inventory Opening & Adjustment - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto bg-white p-6 rounded-xl border border-slate-200 shadow-sm text-xs">
+  <div class="pb-3 mb-4 border-b border-slate-200 flex justify-between items-center">
+    <div>
+      <h1 class="text-base font-bold text-slate-900">Inventory Opening & Adjustment Entry</h1>
+      <p class="text-[11px] text-slate-500">Rectify prior-period opening errors or set current physical counts</p>
+    </div>
+    <a href="{% url 'stock-summary' %}" class="text-indigo-600 font-semibold">&larr; Back to Summary</a>
+  </div>
+
+  <form method="POST" class="space-y-4">
+    {% csrf_token %}
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block font-semibold text-slate-700 mb-1">Adjustment Type *</label>
+        <select name="adj_type" required class="w-full border rounded-lg p-2.5 bg-white">
+          <option value="ADJUSTMENT">Current / Prior Period Adjustment (Rectification)</option>
+          <option value="OPENING">Initial Opening Balance Setup</option>
+        </select>
+      </div>
+      <div>
+        <label class="block font-semibold text-slate-700 mb-1">Entry Date *</label>
+        <input type="date" name="adjustment_date" value="{% now 'Y-m-d' %}" required class="w-full border rounded-lg p-2.5 font-mono">
+      </div>
+    </div>
+
+    <div>
+      <label class="block font-semibold text-slate-700 mb-1">Select Product *</label>
+      <select name="product_id" required class="w-full border rounded-lg p-2.5 bg-white font-mono">
+        <option value="">-- Choose Product --</option>
+        {% for p in products %}
+          <option value="{{ p.id }}">{{ p.name }} [{{ p.code|default:"-" }}]</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block font-semibold text-slate-700 mb-1">Actual Physical Count (Qty) *</label>
+        <input type="number" step="0.001" min="0" name="physical_qty" placeholder="0.000" required class="w-full border rounded-lg p-2.5 font-mono text-right">
+      </div>
+      <div>
+        <label class="block font-semibold text-slate-700 mb-1">Valuation Rate / Unit Cost (Rs.) *</label>
+        <input type="number" step="0.0001" min="0.0001" name="unit_cost" placeholder="0.0000" required class="w-full border rounded-lg p-2.5 font-mono text-right">
+      </div>
+    </div>
+
+    <div>
+      <label class="block font-semibold text-slate-700 mb-1">Audit Reason / Remarks (Mandatory for Review) *</label>
+      <textarea name="remarks" required rows="2" placeholder="e.g. Rectifying FY 2082/83 year-end physical count undercounting by 15 units" class="w-full border rounded-lg p-2.5"></textarea>
+    </div>
+
+    <div class="flex justify-end gap-2 pt-3 border-t">
+      <a href="{% url 'stock-summary' %}" class="px-4 py-2 bg-slate-100 rounded-lg">Cancel</a>
+      <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm">Save & Post Adjustment</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

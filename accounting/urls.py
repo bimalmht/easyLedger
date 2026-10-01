@@ -64,6 +64,7 @@ urlpatterns = [
                     
     # System Configuration Route
     path('settings/configuration/', views.company_settings_view, name='company-settings'),
+    path('settings/voucher-series/', views.voucher_series_settings_view, name='voucher-series-settings'),
 
     # APIs
     path('api/accounts/next-code/', views.get_next_account_code_api, name='next-account-code'),
@@ -79,6 +80,7 @@ urlpatterns = [
     path('api/other-charges/list/', views.other_charges_list_api, name='other_charges_list_api'),
     path('api/suppliers/quick-create/', views.quick_create_supplier_api, name='quick-create-supplier-api'),
     path('api/other-charges/quick-create/', views.quick_create_other_charge_api, name='quick-create-other-charge-api'),
+    path('api/masters/next-code/', views.get_next_master_code_api, name='get-next-master-code-api'),
     
     # Reports
     path('reports/sales-register/', views.sales_register_view, name='sales_register'),
@@ -93,4 +95,8 @@ urlpatterns = [
     # Statutory Return Registers (Annex 6 & Annex 8)
     path('reports/sales-return-register/', views.sales_return_register_view, name='sales-return-register'),
     path('reports/purchase-return-register/', views.purchase_return_register_view, name='purchase-return-register'),
+    
+    # Inventory Management Endpoints
+    path('inventory/summary/', views.stock_summary_report, name='stock-summary'),
+    path('inventory/adjust/', views.stock_adjustment_create, name='stock-adjust'),
 ]

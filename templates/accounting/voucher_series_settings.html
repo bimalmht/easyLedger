@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Voucher Series Setup - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto bg-white p-6 rounded-xl border border-slate-200 shadow-sm text-xs">
+  <div class="flex justify-between items-center pb-3 border-b mb-4">
+    <div>
+      <h1 class="text-base font-bold text-slate-900">Voucher & Invoice Series Configuration</h1>
+      <p class="text-slate-500">Configure IRD-compliant fiscal year prefix schemes and number padding</p>
+    </div>
+  </div>
+
+  <div class="space-y-4">
+    <div class="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-900">
+      <strong>Active Fiscal Year:</strong> {{ active_fy.name }} (Code: <span class="font-mono font-bold">{{ active_fy.code }}</span>) | 
+      <strong>Period:</strong> {{ active_fy.start_date_bs }} to {{ active_fy.end_date_bs }} BS
+    </div>
+
+    <table class="w-full text-left border-collapse border border-slate-200">
+      <thead class="bg-slate-50 font-bold text-slate-700">
+        <tr>
+          <th class="p-2 border">Voucher / Book</th>
+          <th class="p-2 border">Prefix</th>
+          <th class="p-2 border">Fiscal Year</th>
+          <th class="p-2 border">Next Number</th>
+          <th class="p-2 border">Sample Next Serial</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 font-mono">
+        {% for seq in sequences %}
+        <tr>
+          <td class="p-2 border font-sans font-semibold">{{ seq.get_document_type_display }}</td>
+          <td class="p-2 border">{{ seq.prefix }}</td>
+          <td class="p-2 border">{{ seq.fiscal_year.code }}</td>
+          <td class="p-2 border text-right">{{ seq.next_number }}</td>
+          <td class="p-2 border font-bold text-indigo-700">
+            {{ seq.prefix }}-{{ seq.fiscal_year.code }}-{{ seq.next_number|stringformat:"06d" }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -114,17 +114,18 @@
     </div>
 
     <!-- Items Details Table Section -->
-    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
+    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3 overflow-visible">
       <div class="flex items-center justify-between">
         <h2 class="font-bold text-slate-800 text-sm">Items Details</h2>
         <button type="button" onclick="addPurchaseRow()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-colors">+ Add Row</button>
       </div>
 
-      <div class="overflow-x-auto">
+      <!-- Container configured with visible overflow and min-height so dropdown never clips -->
+      <div class="overflow-x-visible overflow-y-visible min-h-[220px]">
         <table class="w-full text-left border-collapse" id="itemsTable">
           <thead>
             <tr class="border-b border-slate-200 text-slate-600 font-semibold text-[11px] bg-slate-50">
-              <th class="p-2 w-72">Item / Product (Click or type to search) *</th>
+              <th class="p-2 w-80">Item / Product (Click or type to search) *</th>
               <th class="p-2 w-20 text-right">Qty</th>
               <th class="p-2 w-24 text-right">Rate (Rs.)</th>
               <th class="p-2 w-20 text-right">Discount</th>

@@ -103,9 +103,14 @@ document.addEventListener('DOMContentLoaded', () => {
     custInput.classList.remove('border-rose-500', 'bg-rose-50');
   }
 
-  // Quick Customer Modal Handlers
+  // Quick Customer Modal Handlers (Default 13% VAT pre-checked)
   window.openCustomerModal = function(prefillName = '') {
     document.getElementById('modalCustName').value = prefillName;
+    const vatCheck = document.getElementById('modalCustVat');
+    if (vatCheck) vatCheck.checked = true;
+    const exemptCheck = document.getElementById('modalCustExempt');
+    if (exemptCheck) exemptCheck.checked = false;
+
     document.getElementById('customerModal').classList.remove('hidden');
     if (prefillName) {
       document.getElementById('modalCustPan').focus();
@@ -117,6 +122,8 @@ document.addEventListener('DOMContentLoaded', () => {
   window.closeCustomerModal = function() {
     document.getElementById('customerModal').classList.add('hidden');
     document.getElementById('quickCustomerForm').reset();
+    const vatCheck = document.getElementById('modalCustVat');
+    if (vatCheck) vatCheck.checked = true;
   };
 
   window.submitQuickCustomer = function(e) {
@@ -152,6 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
     formData.append('email', document.getElementById('modalCustEmail').value.trim());
     formData.append('address', document.getElementById('modalCustAddress').value.trim());
     formData.append('is_vat_exempt', document.getElementById('modalCustExempt').checked);
+    formData.append('apply_vat', document.getElementById('modalCustVat') ? document.getElementById('modalCustVat').checked : true);
 
     fetch('/api/customers/quick-create/', {
       method: 'POST',
@@ -176,66 +184,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   };
 
-  window.submitQuickProduct = function(e) {
-    e.preventDefault();
-    const btn = document.getElementById('btnSaveProd');
-    btn.disabled = true;
-    btn.innerText = 'Saving...';
-
-    const formData = new FormData();
-    formData.append('name', document.getElementById('modalProdName').value.trim());
-    formData.append('hs_code', document.getElementById('modalProdHs').value.trim());
-    formData.append('selling_price', document.getElementById('modalProdPrice').value.trim());
-    formData.append('apply_vat', document.getElementById('modalProdVat').checked);
-    formData.append('apply_excise', document.getElementById('modalProdExcise').checked);
-
-    fetch('/api/products/quick-create/', {
-      method: 'POST',
-      headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value },
-      body: formData
-    })
-    .then(r => r.json())
-    .then(res => {
-      btn.disabled = false;
-      btn.innerText = 'Save to Master & Use';
-      if (res.status === 'success') {
-        const p = res.product;
-        let targetRow = targetRowForNewProduct;
-
-        if (!targetRow) {
-          const rows = document.querySelectorAll('#itemsBody tr');
-          for (let r of rows) {
-            if (!r.querySelector('.productId').value) {
-              targetRow = r;
-              break;
-            }
-          }
-          if (!targetRow) {
-            addInvoiceRow();
-            const allRows = document.querySelectorAll('#itemsBody tr');
-            targetRow = allRows[allRows.length - 1];
-          }
-        }
-
-        applyProductToRow(p, targetRow);
-        closeProductModal();
-      } else {
-        alert(res.message);
-      }
-    })
-    .catch(err => {
-      btn.disabled = false;
-      btn.innerText = 'Save to Master & Use';
-      alert("Failed to connect to server: " + err);
-    });
-  };
-
   // =============================================================================
-  // 2. Product Search & Modal Creation
+  // 2. Product Search & Modal Creation (Default 13% VAT pre-checked)
   // =============================================================================
   window.openProductModal = function(prefillName = '', trElement = null) {
     targetRowForNewProduct = trElement;
     document.getElementById('modalProdName').value = prefillName;
+    const vatCheck = document.getElementById('modalProdVat');
+    if (vatCheck) vatCheck.checked = true; // VAT 13% default checked
+
     document.getElementById('productModal').classList.remove('hidden');
     if (prefillName) {
       document.getElementById('modalProdPrice').focus();
@@ -247,6 +204,8 @@ document.addEventListener('DOMContentLoaded', () => {
   window.closeProductModal = function() {
     document.getElementById('productModal').classList.add('hidden');
     document.getElementById('quickProductForm').reset();
+    const vatCheck = document.getElementById('modalProdVat');
+    if (vatCheck) vatCheck.checked = true;
     targetRowForNewProduct = null;
   };
 
@@ -313,10 +272,54 @@ document.addEventListener('DOMContentLoaded', () => {
     if (pErr) pErr.classList.add('hidden');
 
     tr.querySelector('.productId').value = p.id;
-    tr.querySelector('.productDesc').value = p.name;
-    tr.querySelector('.price').value = parseFloat(p.unit_price || 0).toFixed(2);
-    tr.querySelector('.hsCode').value = p.hs_code || '-';
+    tr.querySelector('.price').value = parseFloat(p.selling_price || p.unit_price || 0).toFixed(2);
+
+    // Store live available stock and render stock status badge
+    const stockAvailable = parseFloat(p.stock_available !== undefined ? p.stock_available : 0);
+    tr.dataset.stockAvailable = stockAvailable;
+
+    let badge = tr.querySelector('.stockBadge');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'stockBadge block text-[10.5px] font-mono mt-0.5';
+      pInput.parentNode.appendChild(badge);
+    }
+
+    if (stockAvailable <= 0) {
+      badge.innerHTML = `<span class="text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">Out of Stock (0.00)</span>`;
+    } else {
+      badge.innerHTML = `<span class="text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">In Stock: ${stockAvailable}</span>`;
+    }
+
+    // Attach dynamic stock guard
+    const qtyInput = tr.querySelector('.qty');
+    qtyInput.oninput = () => {
+      validateRowStock(tr);
+      calculateTotals();
+    };
+
+    validateRowStock(tr);
     calculateTotals();
+  }
+
+  function validateRowStock(tr) {
+    const qtyInput = tr.querySelector('.qty');
+    const pErr = tr.querySelector('.productError');
+    const stockAvailable = parseFloat(tr.dataset.stockAvailable || 0);
+    const qty = parseFloat(qtyInput.value || 0);
+
+    if (qty > stockAvailable) {
+      qtyInput.classList.add('border-rose-500', 'bg-rose-50');
+      if (pErr) {
+        pErr.innerText = `Cannot bill more than available stock (${stockAvailable}). Negative billing prohibited.`;
+        pErr.classList.remove('hidden');
+      }
+      return false;
+    } else {
+      qtyInput.classList.remove('border-rose-500', 'bg-rose-50');
+      if (pErr) pErr.classList.add('hidden');
+      return true;
+    }
   }
 
   window.addInvoiceRow = function() {
@@ -329,10 +332,10 @@ document.addEventListener('DOMContentLoaded', () => {
         <input type="hidden" name="product_id[]" class="productId">
         <input type="hidden" name="description[]" class="productDesc">
         <p class="productError hidden text-[10.5px] text-rose-600 font-semibold mt-0.5 leading-tight"></p>
-        <div class="productDropdown hidden absolute left-0 top-full mt-1 w-80 bg-white border border-slate-300 rounded-lg shadow-2xl z-50 max-h-56 overflow-y-auto"></div>
+        <div class="productDropdown hidden absolute left-0 top-full mt-1 w-80 bg-white border border-slate-300 rounded-lg shadow-2xl z-[100] max-h-56 overflow-y-auto"></div>
       </td>
-      <td class="p-2"><input type="text" name="hs_code[]" class="hsCode w-full border border-slate-300 rounded p-2 text-xs text-center" value="-"></td>
-      <td class="p-2"><input type="number" step="0.01" min="0.01" name="quantity[]" value="1.00" oninput="calculateTotals()" class="qty w-full border border-slate-300 rounded p-2 text-xs text-right font-mono"></td>
+      <td class="p-2"><input type="text" name="hs_code[]" class="hsCode w-full border border-slate-300 rounded p-2 text-xs text-center font-mono" value="-"></td>
+      <td class="p-2"><input type="number" step="0.001" min="0.001" name="quantity[]" value="1.000" class="qty w-full border border-slate-300 rounded p-2 text-xs text-right font-mono"></td>
       <td class="p-2"><input type="number" step="0.01" min="0" name="unit_price[]" value="0.00" oninput="calculateTotals()" class="price w-full border border-slate-300 rounded p-2 text-xs text-right font-mono"></td>
       ${enableFree ? `
         <td class="p-2 text-center">
@@ -348,6 +351,12 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
     tbody.appendChild(tr);
     bindProductSearch(tr);
+
+    const qtyInput = tr.querySelector('.qty');
+    qtyInput.oninput = () => {
+      validateRowStock(tr);
+      calculateTotals();
+    };
   };
 
   function bindProductSearch(tr) {
@@ -366,7 +375,12 @@ document.addEventListener('DOMContentLoaded', () => {
             data.results.forEach(p => {
               const itemDiv = document.createElement('div');
               itemDiv.className = 'p-2.5 hover:bg-slate-100 cursor-pointer border-b border-slate-100 text-[11px] transition-colors';
-              itemDiv.innerHTML = `<div class="font-bold text-slate-800">${p.name}</div><div class="text-slate-500 font-mono">Rs. ${p.unit_price} | HS: ${p.hs_code}</div>`;
+              itemDiv.innerHTML = `
+                <div class="font-bold text-slate-800">${p.name}</div>
+                <div class="text-slate-500 font-mono text-[10px]">
+                  Rs. ${p.unit_price} | HS: ${p.hs_code} ${p.stock_available !== undefined ? `| <span class="${p.stock_available > 0 ? 'text-emerald-700 font-bold' : 'text-rose-600 font-bold'}">Stock: ${p.stock_available}</span>` : ''}
+                </div>
+              `;
               itemDiv.onmousedown = (e) => e.preventDefault();
               itemDiv.onclick = () => {
                 applyProductToRow(p, tr);
@@ -418,7 +432,7 @@ document.addEventListener('DOMContentLoaded', () => {
           this.classList.remove('border-rose-500', 'bg-rose-50');
           pErr.classList.add('hidden');
         }
-      }, 200);
+      }, 250);
     });
   }
 
@@ -505,6 +519,15 @@ document.addEventListener('DOMContentLoaded', () => {
           pInput.focus();
           return false;
         }
+
+        // Strict Negative Inventory Enforcer
+        if (!validateRowStock(row)) {
+          e.preventDefault();
+          alert("Cannot submit invoice: Requested quantity exceeds physical available stock.");
+          row.querySelector('.qty').focus();
+          return false;
+        }
+
         hasValidRow = true;
       }
     }

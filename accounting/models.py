@@ -747,3 +747,60 @@ class DebitNoteTemplate(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.get_page_size_display()}) - {self.company.name}"
+    
+# ==============================================================================
+# 11. Fiscal Year & Voucher Numbering Engine (Nepal IRD Compliance)
+# ==============================================================================
+
+class FiscalYear(models.Model):
+    """
+    Nepalese Fiscal Year Master (e.g., 2083/084 spanning 2083-04-01 to 2084-03-31 BS)
+    """
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="fiscal_years")
+    name = models.CharField(max_length=20, help_text="e.g., 2083/084")
+    code = models.CharField(max_length=10, help_text="e.g., 8384")
+    
+    # Bikram Sambat range
+    start_date_bs = models.CharField(max_length=10, help_text="YYYY-MM-DD (e.g. 2083-04-01)")
+    end_date_bs = models.CharField(max_length=10, help_text="YYYY-MM-DD (e.g. 2084-03-31)")
+    
+    # Gregorian AD equivalent range
+    start_date_ad = models.DateField()
+    end_date_ad = models.DateField()
+    
+    is_closed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("company", "name")
+        ordering = ["-start_date_ad"]
+
+    def __str__(self):
+        return f"{self.name} ({self.company.name})"
+
+
+class DocumentSequence(models.Model):
+    """
+    Per-Company, Per-Fiscal Year sequential voucher counter.
+    Locks with select_for_update() to prevent sequence skips or collisions.
+    """
+    class DocumentType(models.TextChoices):
+        SALES_INVOICE = "INV", _("Sales Invoice (कर बीजक)")
+        PURCHASE_INVOICE = "PINV", _("Purchase Invoice (खरिद बीजक)")
+        CREDIT_NOTE = "CN", _("Credit Note (क्रेडिट नोट)")
+        DEBIT_NOTE = "DN", _("Debit Note (डेबिट नोट)")
+        JOURNAL_VOUCHER = "JV", _("Journal Voucher")
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="document_sequences")
+    fiscal_year = models.ForeignKey(FiscalYear, on_delete=models.CASCADE, related_name="sequences")
+    document_type = models.CharField(max_length=10, choices=DocumentType.choices)
+    
+    prefix = models.CharField(max_length=10, default="INV", help_text="e.g., INV, PINV, CN, DN")
+    next_number = models.PositiveIntegerField(default=1)
+    padding_digits = models.PositiveIntegerField(default=6, help_text="Zero padding (6 digits produces 000001)")
+
+    class Meta:
+        unique_together = ("company", "fiscal_year", "document_type")
+
+    def __str__(self):
+        return f"{self.prefix}-{self.fiscal_year.code} [{self.company.name}]"

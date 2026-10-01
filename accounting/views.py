@@ -15,6 +15,8 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 
 from accounting.utils.nepali_date import ad_to_bs, bs_to_ad
+from accounting.utils.sequence_engine import generate_next_voucher_number
+from accounting.utils.sequence_engine import get_or_create_active_fiscal_year
 
 from .models import (
     AuditLog,
@@ -47,6 +49,8 @@ from .models import (
     DebitNote,
     DebitNoteItem,
     DebitNoteTemplate,
+    DocumentSequence,
+    FiscalYear,
 )
 
 # ==============================================================================
@@ -899,6 +903,10 @@ def product_create_edit_view(request, product_id=None):
 
         if not product:
             product = Product(company=comp)
+            if not code or code == "Generating...":
+                code = get_next_product_code(comp)
+        elif not code:
+            code = get_next_product_code(comp)
 
         product.name = name
         product.code = code
@@ -908,14 +916,21 @@ def product_create_edit_view(request, product_id=None):
         product.is_active = request.POST.get("is_active") == "on"
         product.save()
 
+        # Update tagged taxes
         product.taxes.set(
             TaxConfiguration.objects.filter(id__in=selected_tax_ids, company=comp)
         )
         messages.success(request, f"Product '{product.name}' saved successfully.")
         return redirect("product-list")
-
+    suggested_code = product.code if (product and product.code) else get_next_product_code(comp)
     return render(
-        request, "accounting/product_form.html", {"product": product, "taxes": taxes}
+        request,
+        "accounting/product_form.html",
+        {
+            "product": product,
+            "taxes": taxes,
+            "suggested_code": suggested_code,
+        },
     )
 
 
@@ -1009,6 +1024,7 @@ def customer_create_edit_view(request, customer_id=None):
         customer.is_active = is_active
         customer.save()
 
+        # Update applicable taxes
         customer.applicable_taxes.set(
             TaxConfiguration.objects.filter(id__in=selected_tax_ids, company=comp)
         )
@@ -1045,14 +1061,12 @@ def customer_delete_view(request, customer_id):
 def product_search_api(request):
     """
     Unified Master Autocomplete: Product search by name, code, or HS code.
-    Returns product-specific VAT and Excise rates from Master Tax Configuration.
+    Returns product-specific VAT, Excise rates, and LIVE perpetual stock balance.
     """
     company = request.company
     query = request.GET.get("q", "").strip()
 
-    qs = Product.objects.filter(company=company, is_active=True).prefetch_related(
-        "taxes"
-    )
+    qs = Product.objects.filter(company=company, is_active=True).prefetch_related("taxes")
 
     if query:
         words = query.split()
@@ -1069,7 +1083,6 @@ def product_search_api(request):
 
         vat_tax = active_taxes.filter(tax_type=TaxType.VAT).first()
         excise_tax = active_taxes.filter(tax_type=TaxType.EXCISE).first()
-
         if not excise_tax:
             excise_tax = active_taxes.filter(name__icontains="excise").first()
 
@@ -1082,6 +1095,13 @@ def product_search_api(request):
             else float(p.selling_price or 0.0)
         )
 
+        latest_stock = (
+            StockLedgerEntry.objects.filter(company=company, product=p)
+            .order_by("-entry_date", "-created_at")
+            .first()
+        )
+        current_stock = float(latest_stock.balance_quantity) if latest_stock else 0.000
+
         results.append(
             {
                 "id": str(p.id),
@@ -1093,7 +1113,8 @@ def product_search_api(request):
                 "rate": f"{default_cost_rate:.2f}",
                 "vat_rate": vat_rate,
                 "excise_rate": excise_rate,
-                "display": f"{p.name} [{p.code}]" if p.code else p.name,
+                "stock_available": current_stock,
+                "display": f"{p.name} [{p.code}] (Stock: {current_stock:g})" if p.code else f"{p.name} (Stock: {current_stock:g})",
             }
         )
 
@@ -1129,7 +1150,7 @@ def customer_search_api(request):
 
 
 # ==============================================================================
-# Refined Invoice Creation Engine (Auto-calculates BS Date for IRD Register)
+# Refined Invoice Creation Engine (Auto-calculates BS Date & Prohibits Negative Stock)
 # ==============================================================================
 
 
@@ -1268,23 +1289,55 @@ def invoice_create_view(request):
             except Exception:
                 invoice_date_bs_val = ""
 
-        with transaction.atomic():
-            ym = timezone.now().strftime("%Y%m")
-            inv_count = (
-                Invoice.objects.filter(
-                    company=comp, invoice_number__startswith=f"INV-{ym}"
-                ).count()
-                + 1
+        # Ensure default warehouse exists for stock operations
+        warehouse = Warehouse.objects.filter(company=comp, is_active=True).first()
+        if not warehouse:
+            warehouse = Warehouse.objects.create(
+                company=comp, code="WH-MAIN", name="Main Warehouse", is_default=True
             )
-            invoice_number = f"INV-{ym}-{inv_count:04d}"
 
-            jv_count = (
-                Transaction.objects.filter(
-                    company=comp, voucher_number__startswith=f"JV-{ym}"
-                ).count()
-                + 1
+        with transaction.atomic():
+            # =========================================================================
+            # 1. Negative Inventory Guard (Server-Side Atomic Row Lock)
+            # =========================================================================
+            for itm in line_items:
+                product_obj = Product.objects.select_for_update().get(id=itm["product_id"])
+                requested_qty = itm["quantity"]
+
+                last_stock = (
+                    StockLedgerEntry.objects.filter(
+                        company=comp, product=product_obj, warehouse=warehouse
+                    )
+                    .order_by("-entry_date", "-created_at")
+                    .first()
+                )
+                available_qty = last_stock.balance_quantity if last_stock else Decimal("0.000")
+
+                if requested_qty > available_qty:
+                    messages.error(
+                        request,
+                        f"Negative billing prohibited: Product '{product_obj.name}' only has {available_qty:g} in stock, but {requested_qty:g} was requested.",
+                    )
+                    return render(
+                        request, "accounting/invoice_form.html", {"settings": settings}
+                    )
+
+            # =========================================================================
+            # 2. IRD Fiscal Year-Based Sequential Number Generation (e.g. INV-8384-000001)
+            # =========================================================================
+            invoice_number = generate_next_voucher_number(
+                company=comp,
+                doc_type=DocumentSequence.DocumentType.SALES_INVOICE,
+                ad_date=date_val,
+                default_prefix="INV",
             )
-            jv_number = f"JV-{ym}-{jv_count:04d}"
+
+            jv_number = generate_next_voucher_number(
+                company=comp,
+                doc_type=DocumentSequence.DocumentType.JOURNAL_VOUCHER,
+                ad_date=date_val,
+                default_prefix="JV",
+            )
 
             txn = Transaction.objects.create(
                 company=comp,
@@ -1321,6 +1374,9 @@ def invoice_create_view(request):
                     line_description=f"Output VAT ({max_applied_tax_rate}%)",
                 )
 
+            # =========================================================================
+            # 3. Create Invoice & Line Items
+            # =========================================================================
             inv = Invoice.objects.create(
                 company=comp,
                 invoice_number=invoice_number,
@@ -1356,7 +1412,44 @@ def invoice_create_view(request):
                     promo_badge=itm["promo_badge"],
                 )
 
-            # Record Audit Trail
+            # =========================================================================
+            # 4. Outward StockLedgerEntries (Perpetual Inventory Deduction)
+            # =========================================================================
+            for itm in line_items:
+                product_obj = Product.objects.get(id=itm["product_id"])
+                sold_qty = itm["quantity"]
+
+                last_stock = (
+                    StockLedgerEntry.objects.filter(
+                        company=comp, product=product_obj, warehouse=warehouse
+                    )
+                    .order_by("-entry_date", "-created_at")
+                    .first()
+                )
+
+                prev_qty = last_stock.balance_quantity if last_stock else Decimal("0.000")
+                prev_val = last_stock.balance_value if last_stock else Decimal("0.0000")
+                unit_cost = last_stock.unit_cost if last_stock else (product_obj.purchase_rate or Decimal("0.0000"))
+                cogs_val = (sold_qty * unit_cost).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+                StockLedgerEntry.objects.create(
+                    company=comp,
+                    product=product_obj,
+                    warehouse=warehouse,
+                    entry_date=date_val,
+                    entry_type=StockLedgerEntry.EntryType.SALES,
+                    reference_id=inv.id if isinstance(inv.id, uuid.UUID) else None,
+                    reference_number=invoice_number,
+                    in_quantity=Decimal("0.000"),
+                    out_quantity=sold_qty,
+                    unit_cost=unit_cost,
+                    balance_quantity=prev_qty - sold_qty,
+                    balance_value=max(Decimal("0.0000"), prev_val - cogs_val),
+                )
+
+            # =========================================================================
+            # 5. Record Audit Trail
+            # =========================================================================
             AuditLog.objects.create(
                 company=comp,
                 user=request.user,
@@ -1437,7 +1530,6 @@ def credit_note_create_view(request):
         tax_amount = round(taxable_subtotal * (tax_rate / Decimal("100.00")), 2)
         grand_total = taxable_subtotal + tax_amount
 
-        # Automatic BS date calculation
         cn_date_bs = ""
         if date_val:
             try:
@@ -1744,6 +1836,7 @@ def quick_create_customer_api(request):
     phone = request.POST.get("phone", "").strip()
     email = request.POST.get("email", "").strip()
     is_vat_exempt = request.POST.get("is_vat_exempt") == "true"
+    apply_vat = request.POST.get("apply_vat", "true") == "true"
 
     if not name:
         return JsonResponse(
@@ -1766,6 +1859,12 @@ def quick_create_customer_api(request):
         is_vat_exempt=is_vat_exempt,
         is_active=True,
     )
+
+    vat_tax = TaxConfiguration.objects.filter(
+        company=comp, tax_type=TaxType.VAT, is_active=True
+    ).first()
+    if apply_vat and vat_tax and not is_vat_exempt:
+        cust.applicable_taxes.add(vat_tax)
 
     return JsonResponse(
         {
@@ -1795,7 +1894,7 @@ def quick_create_product_api(request):
     name = request.POST.get("name", "").strip()
     price_val = request.POST.get("selling_price", "0.00").strip()
     hs_code = request.POST.get("hs_code", "").strip()
-    apply_vat = request.POST.get("apply_vat") == "true"
+    apply_vat = request.POST.get("apply_vat", "true") == "true"
     apply_excise = request.POST.get("apply_excise") == "true"
 
     if not name:
@@ -1810,8 +1909,10 @@ def quick_create_product_api(request):
 
     prod = Product.objects.filter(company=comp, name__iexact=name).first()
     if not prod:
+        auto_code = get_next_product_code(comp)
         prod = Product.objects.create(
             company=comp,
+            code=auto_code,
             name=name,
             selling_price=selling_price,
             purchase_rate=selling_price,
@@ -2172,8 +2273,15 @@ def purchase_invoice_create(request):
                 }
             )
 
-        invoice_count = PurchaseInvoice.objects.filter(company=company).count() + 1
-        invoice_number = f"PINV-{invoice_count:05d}"
+        # =========================================================================
+        # IRD Fiscal Year-Based Sequential Number Generation (e.g. PINV-8384-000001)
+        # =========================================================================
+        invoice_number = generate_next_voucher_number(
+            company=company,
+            doc_type=DocumentSequence.DocumentType.PURCHASE_INVOICE,
+            ad_date=final_supplier_invoice_date,
+            default_prefix="PINV",
+        )
 
         grand_total = total_taxable + total_excise + total_vat + total_other_charges
         total_inventory_landed_cost = total_taxable + total_excise + total_other_charges
@@ -2275,14 +2383,13 @@ def purchase_invoice_create(request):
                 balance_value=new_balance_val,
             )
 
-        ym = timezone.now().strftime("%Y%m")
-        jv_count = (
-            Transaction.objects.filter(
-                company=company, voucher_number__startswith=f"JV-{ym}"
-            ).count()
-            + 1
+        # IRD Fiscal Year-Based Sequential JV Number Generation (e.g. JV-8384-000001)
+        jv_number = generate_next_voucher_number(
+            company=company,
+            doc_type=DocumentSequence.DocumentType.JOURNAL_VOUCHER,
+            ad_date=final_supplier_invoice_date,
+            default_prefix="JV",
         )
-        jv_number = f"JV-{ym}-{jv_count:04d}"
 
         txn = Transaction.objects.create(
             company=company,
@@ -2429,6 +2536,7 @@ def supplier_create_edit_view(request, supplier_id=None):
         supplier.is_active = is_active
         supplier.save()
 
+        # Update applicable taxes
         supplier.applicable_taxes.set(
             TaxConfiguration.objects.filter(id__in=selected_tax_ids, company=comp)
         )
@@ -2477,7 +2585,7 @@ def quick_create_supplier_api(request):
     email = request.POST.get("email", "").strip()
     address = request.POST.get("address", "").strip()
     is_vat_exempt = request.POST.get("is_vat_exempt") == "true"
-    apply_vat = request.POST.get("apply_vat") == "true"
+    apply_vat = request.POST.get("apply_vat", "true") == "true"
     apply_excise = request.POST.get("apply_excise") == "true"
 
     if not name:
@@ -2515,7 +2623,7 @@ def quick_create_supplier_api(request):
         ).first()
     )
 
-    if apply_vat and vat_tax:
+    if apply_vat and vat_tax and not is_vat_exempt:
         sup.applicable_taxes.add(vat_tax)
     if apply_excise and excise_tax:
         sup.applicable_taxes.add(excise_tax)
@@ -2897,7 +3005,6 @@ def debit_note_create_view(request):
             jv_count = Transaction.objects.filter(company=comp, voucher_number__startswith=f"JV-{ym}").count() + 1
             jv_number = f"JV-{ym}-{jv_count:04d}"
 
-            # 1. Post Double-Entry Journal Reversal
             txn = Transaction.objects.create(
                 company=comp,
                 date=date_val,
@@ -2910,7 +3017,6 @@ def debit_note_create_view(request):
             vat_input_account = Account.objects.filter(company=comp, code="1050").first()
             ap_account = supplier.ledger_account or Account.objects.filter(company=comp, code="2010").first()
 
-            # Debit Supplier AP (reducing liability)
             JournalEntry.objects.create(
                 transaction=txn,
                 account=ap_account,
@@ -2919,7 +3025,6 @@ def debit_note_create_view(request):
                 line_description=f"Debit Note {debit_note_number} reduction in payable",
             )
 
-            # Credit Inventory Stock (at original capitalized landed cost)
             JournalEntry.objects.create(
                 transaction=txn,
                 account=inventory_account,
@@ -2928,7 +3033,6 @@ def debit_note_create_view(request):
                 line_description=f"Stock reversal at landed cost on {debit_note_number}",
             )
 
-            # Credit VAT Input Account (reversing input tax credit claimed)
             if total_vat > Decimal("0.00") and vat_input_account:
                 JournalEntry.objects.create(
                     transaction=txn,
@@ -2938,7 +3042,6 @@ def debit_note_create_view(request):
                     line_description=f"Input VAT reversal on purchase return {debit_note_number}",
                 )
 
-            # 2. Save Debit Note Header
             dn = DebitNote.objects.create(
                 company=comp,
                 debit_note_number=debit_note_number,
@@ -2958,7 +3061,6 @@ def debit_note_create_view(request):
                 created_by=request.user,
             )
 
-            # 3. Save Items and Write Outward Stock Ledger Entries
             for item in valid_items:
                 DebitNoteItem.objects.create(
                     debit_note=dn,
@@ -2997,7 +3099,6 @@ def debit_note_create_view(request):
                     balance_value=prev_val - line_inv_val,
                 )
 
-            # 4. Audit Log
             AuditLog.objects.create(
                 company=comp,
                 user=request.user,
@@ -3172,5 +3273,207 @@ def purchase_return_register_view(request):
             "totals": totals,
             "from_date": from_date,
             "to_date": to_date,
+        },
+    )
+    
+# ==============================================================================
+# Inventory Management & Statutory Stock Valuation
+# ==============================================================================
+
+@login_required
+def stock_summary_report(request):
+    """Real-time Perpetual Stock Valuation Report."""
+    comp = request.company
+    warehouse = Warehouse.objects.filter(company=comp, is_active=True).first()
+
+    products = Product.objects.filter(company=comp, is_active=True).order_by("name")
+    stock_records = []
+    total_valuation = Decimal("0.00")
+
+    for p in products:
+        last_entry = (
+            StockLedgerEntry.objects.filter(company=comp, product=p)
+            .order_by("-entry_date", "-created_at")
+            .first()
+        )
+        qty = last_entry.balance_quantity if last_entry else Decimal("0.000")
+        val = last_entry.balance_value if last_entry else Decimal("0.0000")
+        rate = (val / qty) if qty > Decimal("0.000") else (p.purchase_rate or Decimal("0.00"))
+
+        if qty != Decimal("0.000") or val != Decimal("0.0000"):
+            total_valuation += val
+            stock_records.append({
+                "product": p,
+                "current_qty": qty,
+                "unit_cost": rate,
+                "total_value": val,
+            })
+
+    return render(
+        request,
+        "accounting/reports/stock_summary.html",
+        {
+            "stock_records": stock_records,
+            "total_valuation": total_valuation,
+            "warehouse": warehouse,
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def stock_adjustment_create(request):
+    """
+    Handles Inventory Opening Stock Setup and Prior-Period Discrepancy Adjustments.
+    Posts proper double-entry JVs and mutates the perpetual StockLedger.
+    """
+    comp = request.company
+    warehouse = Warehouse.objects.filter(company=comp, is_active=True).first()
+    if not warehouse:
+        warehouse = Warehouse.objects.create(
+            company=comp, code="WH-MAIN", name="Main Warehouse", is_default=True
+        )
+
+    if request.method == "POST":
+        adj_type = request.POST.get("adj_type", "ADJUSTMENT")
+        adj_date = request.POST.get("adjustment_date", timezone.now().strftime("%Y-%m-%d"))
+        product_id = request.POST.get("product_id")
+        physical_qty = Decimal(request.POST.get("physical_qty") or "0.000")
+        unit_cost = Decimal(request.POST.get("unit_cost") or "0.0000")
+        remarks = request.POST.get("remarks", "").strip()
+
+        product = get_object_or_404(Product, id=product_id, company=comp)
+
+        with transaction.atomic():
+            last_entry = (
+                StockLedgerEntry.objects.select_for_update()
+                .filter(company=comp, product=product, warehouse=warehouse)
+                .order_by("-entry_date", "-created_at")
+                .first()
+            )
+            book_qty = last_entry.balance_quantity if last_entry else Decimal("0.000")
+            book_val = last_entry.balance_value if last_entry else Decimal("0.0000")
+
+            diff_qty = physical_qty - book_qty
+            diff_val = (diff_qty * unit_cost).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+            ym = timezone.now().strftime("%Y%m")
+            jv_count = Transaction.objects.filter(company=comp, voucher_number__startswith=f"JV-{ym}").count() + 1
+            jv_number = f"JV-{ym}-{jv_count:04d}"
+
+            txn = Transaction.objects.create(
+                company=comp,
+                date=adj_date,
+                voucher_number=jv_number,
+                reference=f"STK-ADJ-{product.code or product.name[:6].upper()}",
+                narration=f"Stock {adj_type.title()} for {product.name}. Diff Qty: {diff_qty:g}. {remarks}",
+            )
+
+            inv_account, _ = Account.objects.get_or_create(
+                company=comp, code="1040", defaults={"name": "Inventory Stock Asset", "account_type": AccountType.ASSET}
+            )
+            adj_account, _ = Account.objects.get_or_create(
+                company=comp, code="3020", defaults={"name": "Prior Period Retained Adjustment / Stock Reserve", "account_type": AccountType.EQUITY}
+            )
+
+            if diff_val > Decimal("0.00"):
+                JournalEntry.objects.create(transaction=txn, account=inv_account, debit=diff_val, credit=Decimal("0.00"), line_description="Inventory upward adjustment")
+                JournalEntry.objects.create(transaction=txn, account=adj_account, debit=Decimal("0.00"), credit=diff_val, line_description="Inventory reserve credit")
+            elif diff_val < Decimal("0.00"):
+                abs_val = abs(diff_val)
+                JournalEntry.objects.create(transaction=txn, account=adj_account, debit=abs_val, credit=Decimal("0.00"), line_description="Inventory deficit write-down")
+                JournalEntry.objects.create(transaction=txn, account=inv_account, debit=Decimal("0.00"), credit=abs_val, line_description="Inventory asset reduction")
+
+            new_balance_qty = book_qty + diff_qty
+            new_balance_val = max(Decimal("0.0000"), book_val + diff_val)
+
+            entry_type = StockLedgerEntry.EntryType.OPENING if adj_type == "OPENING" else StockLedgerEntry.EntryType.ADJUSTMENT
+            StockLedgerEntry.objects.create(
+                company=comp,
+                product=product,
+                warehouse=warehouse,
+                entry_date=adj_date,
+                entry_type=entry_type,
+                reference_number=jv_number,
+                in_quantity=diff_qty if diff_qty > Decimal("0.000") else Decimal("0.000"),
+                out_quantity=abs(diff_qty) if diff_qty < Decimal("0.000") else Decimal("0.000"),
+                unit_cost=unit_cost,
+                balance_quantity=new_balance_qty,
+                balance_value=new_balance_val,
+            )
+
+            AuditLog.objects.create(
+                company=comp,
+                user=request.user,
+                username=request.user.username,
+                action="CREATE",
+                table_name="StockLedgerEntry",
+                record_id=jv_number,
+                ip_address=request.META.get("REMOTE_ADDR"),
+                details=f"Stock {adj_type} on {product.name}: Count changed from {book_qty:g} to {physical_qty:g} (Value: Rs. {diff_val})",
+            )
+
+        messages.success(request, f"Inventory adjustment posted successfully for {product.name}!")
+        return redirect("stock-summary")
+
+    products = Product.objects.filter(company=comp, is_active=True).order_by("name")
+    return render(request, "accounting/stock_adjustment_form.html", {"products": products, "warehouse": warehouse})
+
+def get_next_product_code(company):
+    existing = Product.objects.filter(company=company, code__startswith="PRD-")
+    numbers = []
+    for p in existing:
+        num_part = p.code.replace("PRD-", "")
+        if num_part.isdigit():
+            numbers.append(int(num_part))
+    next_num = max(numbers) + 1 if numbers else 1
+    return f"PRD-{next_num:04d}"
+
+
+def get_next_customer_code(company):
+    # Customer model doesn't have a code column by default, but if you store or display one:
+    existing = Customer.objects.filter(company=company)
+    # Uses sequential count + 1 padded
+    return f"CUST-{existing.count() + 1:04d}"
+
+
+def get_next_supplier_code(company):
+    existing = Supplier.objects.filter(company=company)
+    return f"SUP-{existing.count() + 1:04d}"
+
+@login_required
+@require_GET
+def get_next_master_code_api(request):
+    master_type = request.GET.get("type", "").strip().lower()
+    comp = request.company
+
+    if master_type == "product":
+        next_code = get_next_product_code(comp)
+    elif master_type == "supplier":
+        next_code = get_next_supplier_code(comp)
+    elif master_type == "customer":
+        next_code = get_next_customer_code(comp)
+    else:
+        next_code = ""
+
+    return JsonResponse({"status": "success", "code": next_code})
+
+@login_required
+def voucher_series_settings_view(request):
+    """
+    Voucher and Invoice Series Setup per Nepal IRD Fiscal Year.
+    """
+    comp = request.company
+    active_fy = get_or_create_active_fiscal_year(comp)
+    sequences = DocumentSequence.objects.filter(
+        company=comp, fiscal_year=active_fy
+    ).order_by("document_type")
+
+    return render(
+        request,
+        "accounting/voucher_series_settings.html",
+        {
+            "active_fy": active_fy,
+            "sequences": sequences,
         },
     )

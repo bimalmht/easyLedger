@@ -95,6 +95,11 @@ function selectSupplier(s) {
 
 function openSupplierModal(prefillName = '') {
   document.getElementById('modalSupName').value = prefillName;
+  const vatCheck = document.getElementById('modalSupVat');
+  if (vatCheck) vatCheck.checked = true; // VAT 13% default checked
+  const exemptCheck = document.getElementById('modalSupExempt');
+  if (exemptCheck) exemptCheck.checked = false;
+
   document.getElementById('supplierModal').classList.remove('hidden');
   if (prefillName) {
     document.getElementById('modalSupPan').focus();
@@ -106,6 +111,8 @@ function openSupplierModal(prefillName = '') {
 function closeSupplierModal() {
   document.getElementById('supplierModal').classList.add('hidden');
   document.getElementById('quickSupplierForm').reset();
+  const vatCheck = document.getElementById('modalSupVat');
+  if (vatCheck) vatCheck.checked = true;
 }
 
 function submitQuickSupplier(e) {
@@ -168,11 +175,14 @@ function submitQuickSupplier(e) {
 }
 
 // =============================================================================
-// 2. Product Search & Quick Product Modal
+// 2. Product Search & Quick Product Modal (Default 13% VAT pre-checked)
 // =============================================================================
 function openProductModal(prefillName = '', trElement = null) {
   targetRowForNewProduct = trElement;
   document.getElementById('modalProdName').value = prefillName;
+  const vatCheck = document.getElementById('modalProdVat');
+  if (vatCheck) vatCheck.checked = true; // VAT 13% default checked
+
   document.getElementById('productModal').classList.remove('hidden');
   if (prefillName) {
     document.getElementById('modalProdPrice').focus();
@@ -184,6 +194,8 @@ function openProductModal(prefillName = '', trElement = null) {
 function closeProductModal() {
   document.getElementById('productModal').classList.add('hidden');
   document.getElementById('quickProductForm').reset();
+  const vatCheck = document.getElementById('modalProdVat');
+  if (vatCheck) vatCheck.checked = true;
   targetRowForNewProduct = null;
 }
 
@@ -252,6 +264,7 @@ function applyProductToRow(p, tr) {
   tr.querySelector('.productId').value = p.id;
   tr.querySelector('.price').value = parseFloat(p.unit_price || 0).toFixed(2);
 
+  // Store product-tagged tax rates on the row
   tr.dataset.vatRate = p.vat_rate !== undefined ? p.vat_rate : 13.0;
   tr.dataset.exciseRate = p.excise_rate !== undefined ? p.excise_rate : 0.0;
 
@@ -275,9 +288,10 @@ function addPurchaseRow() {
       <input type="hidden" name="excise_rate[]" class="lineExciseRate" value="0.0">
       <input type="hidden" name="vat_rate[]" class="lineVatRate" value="13.0">
       <p class="productError hidden text-[10.5px] text-rose-600 font-semibold mt-0.5 leading-tight"></p>
-      <div class="productDropdown hidden absolute left-0 top-full mt-1 w-80 bg-white border border-slate-300 rounded-lg shadow-2xl z-50 max-h-56 overflow-y-auto"></div>
+      <!-- Elevated z-index floating above overflow boundaries -->
+      <div class="productDropdown hidden absolute left-0 top-full mt-1 w-80 bg-white border border-slate-300 rounded-lg shadow-2xl z-[100] max-h-56 overflow-y-auto"></div>
     </td>
-    <td class="p-2"><input type="number" step="0.01" min="0.01" name="qty[]" value="1.00" oninput="calculateTotals()" class="qty w-full border border-slate-300 rounded p-2 text-xs text-right font-mono"></td>
+    <td class="p-2"><input type="number" step="0.001" min="0.001" name="qty[]" value="1.000" oninput="calculateTotals()" class="qty w-full border border-slate-300 rounded p-2 text-xs text-right font-mono"></td>
     <td class="p-2"><input type="number" step="0.01" min="0" name="rate[]" value="0.00" oninput="calculateTotals()" class="price w-full border border-slate-300 rounded p-2 text-xs text-right font-mono"></td>
     <td class="p-2"><input type="number" step="0.01" min="0" name="discount[]" value="0.00" oninput="calculateTotals()" class="discount w-full border border-slate-300 rounded p-2 text-xs text-right font-mono"></td>
     <td class="p-2 text-right font-mono lineTaxable">0.00</td>
@@ -307,7 +321,12 @@ function bindProductSearch(tr) {
           data.results.forEach(p => {
             const itemDiv = document.createElement('div');
             itemDiv.className = 'p-2.5 hover:bg-slate-100 cursor-pointer border-b border-slate-100 text-[11px] transition-colors';
-            itemDiv.innerHTML = `<div class="font-bold text-slate-800">${p.name}</div><div class="text-slate-500 font-mono">Rate: Rs. ${p.unit_price} | HS: ${p.hs_code}</div>`;
+            itemDiv.innerHTML = `
+              <div class="font-bold text-slate-800">${p.name}</div>
+              <div class="text-slate-500 font-mono text-[10px]">
+                Rate: Rs. ${p.unit_price} | HS: ${p.hs_code} ${p.stock_available !== undefined ? `| Stock: ${p.stock_available}` : ''}
+              </div>
+            `;
             itemDiv.onmousedown = (e) => e.preventDefault();
             itemDiv.onclick = () => {
               applyProductToRow(p, tr);
@@ -328,7 +347,8 @@ function bindProductSearch(tr) {
         pDropdown.appendChild(createDiv);
 
         pDropdown.classList.remove('hidden');
-      });
+      })
+      .catch(err => console.error("Product fetch error:", err));
   }
 
   pInput.addEventListener('focus', function() {
@@ -355,7 +375,7 @@ function bindProductSearch(tr) {
         this.classList.remove('border-rose-500', 'bg-rose-50');
         pErr.classList.add('hidden');
       }
-    }, 200);
+    }, 250);
   });
 }
 

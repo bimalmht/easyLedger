@@ -70,9 +70,9 @@
               </div>
             </div>
 
-            <!-- 3. Reports Dropdown (New Statutory IRD Registers) -->
+            <!-- 3. Reports Dropdown -->
             <div class="relative dropdown-container">
-              <button type="button" onclick="toggleDropdown('reportsDropdownMenu')" class="px-3 py-2 rounded-lg hover:text-indigo-600 hover:bg-slate-50 transition-colors flex items-center gap-1 font-bold text-indigo-700 bg-indigo-50/50">
+              <button type="button" onclick="toggleDropdown('reportsDropdownMenu')" class="px-3 py-2 rounded-lg hover:text-indigo-600 hover:bg-slate-50 transition-colors flex items-center gap-1">
                 <span>Reports</span>
                 <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
               </button>
@@ -96,6 +96,12 @@
                   <div class="font-bold text-slate-800">Purchase Return Register</div>
                   <div class="text-[10px] text-slate-400">अनुसूची ८ - डेबिट नोट खाता (Annex 8)</div>
                 </a>
+                <div class="border-t border-slate-100 my-1"></div>
+                <div class="px-3 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Inventory Reports</div>
+                <a href="{% url 'stock-summary' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">
+                  <div class="font-bold text-slate-800">Inventory Valuation Summary</div>
+                  <div class="text-[10px] text-slate-400">स्टक सारांश तथा मूल्याङ्कन प्रतिवेदन</div>
+                </a>
               </div>
             </div>
 
@@ -118,7 +124,7 @@
               </div>
             </div>
 
-            <!-- 5. Master Dropdown (Supplier positioned directly above Customer) -->
+            <!-- 5. Master Dropdown -->
             <div class="relative dropdown-container">
               <button type="button" onclick="toggleDropdown('masterDropdownMenu')" class="px-3 py-2 rounded-lg hover:text-indigo-600 hover:bg-slate-50 transition-colors flex items-center gap-1">
                 <span>Master</span>
@@ -146,13 +152,13 @@
                 <span class="text-xs font-semibold">Settings</span>
                 <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
               </button>
-              <div id="settingsDropdownMenu" class="dropdown-menu hidden absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50">
-                <div class="px-3 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">System & Workflows</div>
-                <a href="{% url 'company-settings' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600 font-semibold text-slate-800">
-                  ⚙️ System Configuration
+              <div id="settingsDropdownMenu" class="dropdown-menu hidden absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50">
+                
+                <a href="{% url 'company-settings' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">⚙️System Configuration
                 </a>
-                <div class="border-t border-slate-100 my-1"></div>
-                <div class="px-3 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">Print Formats & Templates</div>
+                <a href="{% url 'voucher-series-settings' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">                  
+                  Voucher & Invoice Series              
+                </a>                
                 <a href="{% url 'template-list' %}" class="block px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600">
                   Invoice Templates (Schedule 5)
                 </a>
@@ -206,11 +212,12 @@
           <a href="{% url 'debit-note-create' %}" class="block pl-6 pr-3 py-1.5 text-indigo-600 font-bold hover:bg-indigo-50">+ Issue Debit Note</a>
 
           <!-- Reports Mobile Section -->
-          <div class="px-3 py-1 font-bold text-indigo-700 text-[10px] uppercase tracking-wider bg-indigo-50/50 py-1">IRD Statutory Tax Registers</div>
+          <div class="px-3 py-1 font-bold text-slate-400 text-[10px] uppercase tracking-wider">IRD Statutory Registers</div>
           <a href="{% url 'purchase_register' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50 font-semibold text-slate-800">Purchase Register (Schedule 7)</a>
           <a href="{% url 'sales_register' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50 font-semibold text-slate-800">Sales Register (Schedule 5)</a>
           <a href="{% url 'sales-return-register' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50 font-semibold text-slate-800">Sales Return Register (Annex 6)</a>
           <a href="{% url 'purchase-return-register' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50 font-semibold text-slate-800">Purchase Return Register (Annex 8)</a>
+          <a href="{% url 'stock-summary' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50 font-semibold text-slate-800">Inventory Valuation Summary</a>
 
           <!-- Finance Mobile Section -->
           <div class="px-3 py-1 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Finance</div>
@@ -231,7 +238,8 @@
 
           <!-- Settings Mobile Section -->
           <div class="px-3 py-1 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Settings & Setup</div>
-          <a href="{% url 'company-settings' %}" class="block pl-6 pr-3 py-1.5 text-indigo-600 font-bold hover:bg-indigo-50">⚙️ System Configuration</a>
+          <a href="{% url 'company-settings' %}" class="block pl-6 pr-3 py-1.5 text-indigo-600 font-bold hover:bg-indigo-50">⚙️️ System Configuration</a>
+          <a href="{% url 'voucher-series-settings' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50 font-semibold text-slate-800">Voucher & Invoice Series</a>
           <a href="{% url 'template-list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Invoice Templates</a>
           <a href="{% url 'credit-note-template-list' %}" class="block pl-6 pr-3 py-1.5 hover:bg-indigo-50">Credit Note Templates</a>
 
