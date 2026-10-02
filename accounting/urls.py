@@ -99,4 +99,6 @@ urlpatterns = [
     # Inventory Management Endpoints
     path('inventory/summary/', views.stock_summary_report, name='stock-summary'),
     path('inventory/adjust/', views.stock_adjustment_create, name='stock-adjust'),
+    path('inventory/opening/upload/', views.bulk_upload_opening_stock, name='inventory-opening-upload'),
+    path('inventory/opening/download-template/', views.download_opening_stock_template, name='inventory-opening-template'),
 ]

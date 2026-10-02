@@ -1,3 +1,7 @@
+import csv
+import io
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from decimal import Decimal, ROUND_HALF_UP
 import uuid
 import json
@@ -8,15 +12,14 @@ from django.db import transaction
 from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Sum, Q, ProtectedError, F
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 
 from accounting.utils.nepali_date import ad_to_bs, bs_to_ad
-from accounting.utils.sequence_engine import generate_next_voucher_number
-from accounting.utils.sequence_engine import get_or_create_active_fiscal_year
+from accounting.utils.sequence_engine import generate_next_voucher_number, get_or_create_active_fiscal_year, DocumentSequence
 
 from .models import (
     AuditLog,
@@ -873,7 +876,7 @@ def tax_create_edit_view(request, tax_id=None):
 # Product Master Views
 # ==============================================================================
 
-
+@login_required
 def product_list_view(request):
     products = (
         Product.objects.filter(company=request.company)
@@ -882,7 +885,7 @@ def product_list_view(request):
     )
     return render(request, "accounting/product_list.html", {"products": products})
 
-
+@login_required
 def product_create_edit_view(request, product_id=None):
     comp = request.company
     product = (
@@ -934,6 +937,7 @@ def product_create_edit_view(request, product_id=None):
     )
 
 
+@login_required
 @require_POST
 def product_delete_view(request, product_id):
     product = get_object_or_404(Product, id=product_id, company=request.company)
@@ -964,6 +968,7 @@ def product_delete_view(request, product_id):
 # ==============================================================================
 
 
+@login_required
 def customer_list_view(request):
     customers = (
         Customer.objects.filter(company=request.company)
@@ -972,7 +977,7 @@ def customer_list_view(request):
     )
     return render(request, "accounting/customer_list.html", {"customers": customers})
 
-
+@login_required
 def customer_create_edit_view(request, customer_id=None):
     comp = request.company
     customer = (
@@ -1036,6 +1041,7 @@ def customer_create_edit_view(request, customer_id=None):
     )
 
 
+@login_required
 @require_POST
 def customer_delete_view(request, customer_id):
     customer = get_object_or_404(Customer, id=customer_id, company=request.company)
@@ -1120,7 +1126,7 @@ def product_search_api(request):
 
     return JsonResponse({"status": "success", "results": results})
 
-
+@login_required
 @require_GET
 def customer_search_api(request):
     query = request.GET.get("q", "").strip()
@@ -1153,7 +1159,7 @@ def customer_search_api(request):
 # Refined Invoice Creation Engine (Auto-calculates BS Date & Prohibits Negative Stock)
 # ==============================================================================
 
-
+@login_required
 def invoice_create_view(request):
     comp = request.company
     settings, _ = CompanySetting.objects.get_or_create(company=comp)
@@ -1198,16 +1204,18 @@ def invoice_create_view(request):
         line_items = []
         max_applied_tax_rate = Decimal("0.00")
 
-        for i in range(len(descriptions)):
-            desc = descriptions[i].strip()
+        num_rows = max(len(descriptions), len(product_ids))
+        for i in range(num_rows):
+            desc = descriptions[i].strip() if i < len(descriptions) else ""
             p_id = product_ids[i].strip() if i < len(product_ids) else None
-            qty = Decimal(quantities[i] or "0.00")
-            price = Decimal(unit_prices[i] or "0.00")
+            qty = Decimal(quantities[i] or "0.00") if i < len(quantities) else Decimal("0.00")
+            price = Decimal(unit_prices[i] or "0.00") if i < len(unit_prices) else Decimal("0.00")
             h_code = hs_codes[i] if i < len(hs_codes) else ""
             is_free = (is_free_flags[i] == "1") if i < len(is_free_flags) else False
             promo = promo_badges[i].strip() if i < len(promo_badges) else ""
 
-            if not desc:
+            # If both description and product_id are blank, skip row
+            if not desc and not p_id:
                 continue
 
             if not p_id:
@@ -1223,11 +1231,15 @@ def invoice_create_view(request):
             if not product_obj:
                 messages.error(
                     request,
-                    f"Product for '{desc}' was not found in the Product Master.",
+                    f"Product was not found in the Product Master.",
                 )
                 return render(
                     request, "accounting/invoice_form.html", {"settings": settings}
                 )
+
+            # Fallback to master product name if description was blank
+            if not desc:
+                desc = product_obj.name
 
             line_amt = round(qty * price, 2)
             if is_free:
@@ -1243,7 +1255,7 @@ def invoice_create_view(request):
             line_items.append(
                 {
                     "product_id": product_obj.id,
-                    "description": product_obj.name,
+                    "description": desc,
                     "hs_code": h_code or product_obj.hs_code or "-",
                     "quantity": qty,
                     "unit_price": price,
@@ -1466,7 +1478,7 @@ def invoice_create_view(request):
 
     return render(request, "accounting/invoice_form.html", {"settings": settings})
 
-
+@login_required
 def credit_note_list_view(request):
     credit_notes = CreditNote.objects.filter(company=request.company).select_related(
         "customer", "original_invoice"
@@ -1475,7 +1487,8 @@ def credit_note_list_view(request):
         request, "accounting/credit_note_list.html", {"credit_notes": credit_notes}
     )
 
-
+@login_required
+@require_http_methods(["GET", "POST"])
 def credit_note_create_view(request):
     comp = request.company
 
@@ -1488,6 +1501,12 @@ def credit_note_create_view(request):
         original_invoice = get_object_or_404(Invoice, id=invoice_id, company=comp)
         customer = original_invoice.customer
 
+        warehouse = Warehouse.objects.filter(company=comp, is_active=True).first()
+        if not warehouse:
+            warehouse = Warehouse.objects.create(
+                company=comp, code="WH-MAIN", name="Main Warehouse", is_default=True
+            )
+
         descriptions = request.POST.getlist("description[]")
         hs_codes = request.POST.getlist("hs_code[]")
         quantities = request.POST.getlist("quantity[]")
@@ -1497,21 +1516,33 @@ def credit_note_create_view(request):
         taxable_subtotal = Decimal("0.00")
         line_items = []
 
-        for i in range(len(descriptions)):
-            desc = descriptions[i].strip()
-            qty = Decimal(quantities[i] or "0.00")
-            price = Decimal(unit_prices[i] or "0.00")
+        num_rows = max(len(descriptions), len(product_ids))
+        for i in range(num_rows):
+            desc = descriptions[i].strip() if i < len(descriptions) else ""
+            qty = Decimal(quantities[i] or "0.00") if i < len(quantities) else Decimal("0.00")
+            price = Decimal(unit_prices[i] or "0.00") if i < len(unit_prices) else Decimal("0.00")
             h_code = hs_codes[i] if i < len(hs_codes) else "-"
-            p_id = product_ids[i] if i < len(product_ids) and product_ids[i] else None
+            p_id = product_ids[i].strip() if i < len(product_ids) and product_ids[i] else None
 
-            if not desc or qty <= 0:
+            if qty <= Decimal("0.00"):
                 continue
+
+            # Resolve product
+            product_obj = None
+            if p_id:
+                product_obj = Product.objects.filter(id=p_id, company=comp).first()
+            if not product_obj and desc:
+                product_obj = Product.objects.filter(name__iexact=desc, company=comp).first()
+
+            if not desc and product_obj:
+                desc = product_obj.name
 
             line_amt = round(qty * price, 2)
             taxable_subtotal += line_amt
             line_items.append(
                 {
-                    "product_id": p_id,
+                    "product": product_obj,
+                    "product_id": product_obj.id if product_obj else None,
                     "description": desc,
                     "hs_code": h_code,
                     "quantity": qty,
@@ -1530,6 +1561,7 @@ def credit_note_create_view(request):
         tax_amount = round(taxable_subtotal * (tax_rate / Decimal("100.00")), 2)
         grand_total = taxable_subtotal + tax_amount
 
+        # Automatic BS date derivation
         cn_date_bs = ""
         if date_val:
             try:
@@ -1538,22 +1570,20 @@ def credit_note_create_view(request):
                 cn_date_bs = ""
 
         with transaction.atomic():
-            ym = timezone.now().strftime("%Y%m")
-            cn_count = (
-                CreditNote.objects.filter(
-                    company=comp, credit_note_number__startswith=f"CN-{ym}"
-                ).count()
-                + 1
+            # IRD Fiscal Year sequential number generation
+            credit_note_number = generate_next_voucher_number(
+                company=comp,
+                doc_type=DocumentSequence.DocumentType.CREDIT_NOTE,
+                ad_date=date_val,
+                default_prefix="CN",
             )
-            credit_note_number = f"CN-{ym}-{cn_count:04d}"
 
-            jv_count = (
-                Transaction.objects.filter(
-                    company=comp, voucher_number__startswith=f"JV-{ym}"
-                ).count()
-                + 1
+            jv_number = generate_next_voucher_number(
+                company=comp,
+                doc_type=DocumentSequence.DocumentType.JOURNAL_VOUCHER,
+                ad_date=date_val,
+                default_prefix="JV",
             )
-            jv_number = f"JV-{ym}-{jv_count:04d}"
 
             txn = Transaction.objects.create(
                 company=comp,
@@ -1610,6 +1640,9 @@ def credit_note_create_view(request):
                 created_by=request.user,
             )
 
+            # -----------------------------------------------------------------
+            # Save Items & Post INWARD StockLedgerEntry (Returns stock to warehouse)
+            # -----------------------------------------------------------------
             for item in line_items:
                 CreditNoteItem.objects.create(
                     credit_note=cn,
@@ -1621,6 +1654,46 @@ def credit_note_create_view(request):
                     amount=item["amount"],
                 )
 
+                if item["product"]:
+                    product_obj = item["product"]
+                    returned_qty = item["quantity"]
+
+                    last_stock = (
+                        StockLedgerEntry.objects.filter(
+                            company=comp, product=product_obj, warehouse=warehouse
+                        )
+                        .order_by("-entry_date", "-created_at")
+                        .first()
+                    )
+
+                    prev_qty = last_stock.balance_quantity if last_stock else Decimal("0.000")
+                    prev_val = last_stock.balance_value if last_stock else Decimal("0.0000")
+
+                    # Recover moving unit cost from product or last entry
+                    unit_cost = (
+                        last_stock.unit_cost
+                        if (last_stock and last_stock.unit_cost > Decimal("0.0000"))
+                        else (product_obj.purchase_rate or Decimal("0.0000"))
+                    )
+                    stock_returned_val = (returned_qty * unit_cost).quantize(
+                        Decimal("0.0001"), rounding=ROUND_HALF_UP
+                    )
+
+                    StockLedgerEntry.objects.create(
+                        company=comp,
+                        product=product_obj,
+                        warehouse=warehouse,
+                        entry_date=date_val,
+                        entry_type=StockLedgerEntry.EntryType.SALES_RETURN,
+                        reference_id=cn.id if isinstance(cn.id, uuid.UUID) else None,
+                        reference_number=credit_note_number,
+                        in_quantity=returned_qty,
+                        out_quantity=Decimal("0.000"),
+                        unit_cost=unit_cost,
+                        balance_quantity=prev_qty + returned_qty,
+                        balance_value=prev_val + stock_returned_val,
+                    )
+
             AuditLog.objects.create(
                 company=comp,
                 user=request.user,
@@ -1629,11 +1702,11 @@ def credit_note_create_view(request):
                 table_name="CreditNote",
                 record_id=credit_note_number,
                 ip_address=request.META.get("REMOTE_ADDR"),
-                details=f"Issued Credit Note {credit_note_number} against Invoice {original_invoice.invoice_number}",
+                details=f"Issued Credit Note {credit_note_number} against Invoice {original_invoice.invoice_number}. Stock returned to inventory.",
             )
 
         messages.success(
-            request, f"Credit Note {credit_note_number} generated and posted."
+            request, f"Credit Note {credit_note_number} generated and stock restored to inventory."
         )
         return redirect("credit-note-detail", credit_note_id=cn.id)
 
@@ -1645,6 +1718,7 @@ def credit_note_create_view(request):
     )
 
 
+@login_required
 def credit_note_detail_view(request, credit_note_id):
     cn = get_object_or_404(
         CreditNote.objects.select_related(
@@ -1712,7 +1786,7 @@ def credit_note_detail_view(request, credit_note_id):
         },
     )
 
-
+@login_required
 @require_GET
 def invoice_items_api(request, invoice_id):
     inv = get_object_or_404(Invoice, id=invoice_id, company=request.company)
@@ -1739,14 +1813,14 @@ def invoice_items_api(request, invoice_id):
         }
     )
 
-
+@login_required
 def credit_note_template_list_view(request):
     templates = CreditNoteTemplate.objects.filter(company=request.company)
     return render(
         request, "accounting/credit_note_template_list.html", {"templates": templates}
     )
 
-
+@login_required
 def credit_note_template_edit_view(request, template_id=None):
     comp = request.company
     template = (
@@ -1788,6 +1862,7 @@ def credit_note_template_edit_view(request, template_id=None):
     )
 
 
+@login_required
 def company_settings_view(request):
     comp = request.company
     settings, _ = CompanySetting.objects.get_or_create(company=comp)
@@ -1818,7 +1893,7 @@ def company_settings_view(request):
 
     return render(request, "accounting/company_settings.html", {"settings": settings})
 
-
+@login_required
 @require_POST
 def quick_create_customer_api(request):
     comp = request.company
@@ -1879,7 +1954,7 @@ def quick_create_customer_api(request):
         }
     )
 
-
+@login_required
 @require_POST
 def quick_create_product_api(request):
     comp = request.company
@@ -1965,7 +2040,7 @@ def quick_create_product_api(request):
         }
     )
 
-
+@login_required
 @require_POST
 def quick_create_account_api(request):
     comp = request.company
@@ -2009,7 +2084,7 @@ def quick_create_account_api(request):
         }
     )
 
-
+@login_required
 @require_GET
 def get_next_account_code_api(request):
     comp = request.company
@@ -2020,7 +2095,7 @@ def get_next_account_code_api(request):
     next_code = get_next_account_code(comp, category or "ASSET")
     return JsonResponse({"status": "success", "next_code": str(next_code)})
 
-
+@login_required
 @require_GET
 def account_search_api(request):
     """Searches active ledger accounts across code and name or lists all if blank."""
@@ -2893,21 +2968,35 @@ def debit_note_list_view(request):
 @login_required
 @require_GET
 def purchase_invoice_items_api(request, invoice_id):
-    """Returns line items with unit landed costs for the selected purchase invoice."""
+    """Returns line items with unit landed costs, billed qty, and live in-stock qty."""
     pinv = get_object_or_404(PurchaseInvoice, id=invoice_id, company=request.company)
+    warehouse = pinv.warehouse or Warehouse.objects.filter(company=request.company, is_active=True).first()
+    
     items = []
     for item in pinv.items.all():
+        # Retrieve live perpetual stock for this product in the warehouse
+        last_stock = (
+            StockLedgerEntry.objects.filter(
+                company=request.company, product=item.product, warehouse=warehouse
+            )
+            .order_by("-entry_date", "-created_at")
+            .first()
+        )
+        current_stock = float(last_stock.balance_quantity) if last_stock else 0.000
+
         items.append({
             "product_id": str(item.product.id),
             "description": item.product.name,
             "hs_code": item.product.hs_code or "-",
-            "quantity": float(item.quantity),
+            "quantity": float(item.quantity),               # Billed quantity limit
+            "stock_available": max(0.000, current_stock),    # Physical inventory limit
             "rate": float(item.rate),
             "landing_cost_per_unit": float(item.landing_cost_per_unit or item.rate),
             "vat_rate": float(item.vat_rate),
             "excise_rate": float(item.excise_rate),
             "taxable": float(item.rate * item.quantity),
         })
+        
     return JsonResponse({
         "status": "success",
         "supplier_name": pinv.supplier.name,
@@ -2931,16 +3020,21 @@ def debit_note_create_view(request):
 
         original_pinv = get_object_or_404(PurchaseInvoice, id=purchase_invoice_id, company=comp)
         supplier = original_pinv.supplier
+        
+        # Ensure target warehouse is resolved
         warehouse = original_pinv.warehouse
+        if not warehouse:
+            warehouse = Warehouse.objects.filter(company=comp, is_active=True).first()
+        if not warehouse:
+            warehouse = Warehouse.objects.create(
+                company=comp, code="WH-MAIN", name="Main Warehouse", is_default=True
+            )
 
         product_ids = request.POST.getlist("product_id[]")
-        descriptions = request.POST.getlist("description[]")
-        hs_codes = request.POST.getlist("hs_code[]")
         quantities = request.POST.getlist("quantity[]")
-        rates = request.POST.getlist("rate[]")
-        unit_landeds = request.POST.getlist("unit_landed[]")
-        vat_rates = request.POST.getlist("vat_rate[]")
-        excise_rates = request.POST.getlist("excise_rate[]")
+
+        # Map items strictly invoiced on this original purchase bill
+        billed_items_map = {str(item.product_id): item for item in original_pinv.items.all()}
 
         valid_items = []
         total_taxable = Decimal("0.00")
@@ -2948,18 +3042,33 @@ def debit_note_create_view(request):
         total_vat = Decimal("0.00")
         total_inventory_cost_reversed = Decimal("0.0000")
 
-        for i in range(len(product_ids)):
-            pid = product_ids[i].strip()
-            qty = Decimal(quantities[i] or "0.00")
-            rate = Decimal(rates[i] or "0.00")
-            landed = Decimal(unit_landeds[i] or str(rate))
-            v_rate = Decimal(vat_rates[i] or "13.00")
-            e_rate = Decimal(excise_rates[i] or "0.00")
+        num_rows = max(len(product_ids), len(quantities))
+        for i in range(num_rows):
+            pid = product_ids[i].strip() if i < len(product_ids) and product_ids[i] else None
+            qty = Decimal(quantities[i] or "0.00") if i < len(quantities) else Decimal("0.00")
 
             if not pid or qty <= Decimal("0.00"):
                 continue
 
-            product = get_object_or_404(Product, id=pid, company=comp)
+            # Hard validation: Product must belong to the referenced purchase invoice
+            if pid not in billed_items_map:
+                messages.error(
+                    request,
+                    f"Security Error: Submitted product (ID: {pid}) does not belong to Purchase Bill #{original_pinv.supplier_invoice_no}."
+                )
+                return redirect("debit-note-create")
+
+            orig_bill_item = billed_items_map[pid]
+            product = orig_bill_item.product
+
+            # Enforce verified rates, taxes, and landed costs from the original bill item
+            rate = orig_bill_item.rate
+            landed = orig_bill_item.landing_cost_per_unit or rate
+            v_rate = orig_bill_item.vat_rate
+            e_rate = orig_bill_item.excise_rate
+            desc = product.name
+            hs_code = getattr(product, "hs_code", "-") or "-"
+
             line_taxable = (qty * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             line_excise = (line_taxable * (e_rate / Decimal("100.00"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             line_vat = ((line_taxable + line_excise) * (v_rate / Decimal("100.00"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -2973,8 +3082,8 @@ def debit_note_create_view(request):
 
             valid_items.append({
                 "product": product,
-                "description": descriptions[i].strip() or product.name,
-                "hs_code": hs_codes[i] if i < len(hs_codes) else "-",
+                "description": desc,
+                "hs_code": hs_code,
                 "quantity": qty,
                 "rate": rate,
                 "landed": landed,
@@ -2982,6 +3091,7 @@ def debit_note_create_view(request):
                 "line_excise": line_excise,
                 "line_vat": line_vat,
                 "line_total": line_total,
+                "billed_qty": orig_bill_item.quantity,
             })
 
         if not valid_items:
@@ -2998,13 +3108,60 @@ def debit_note_create_view(request):
                 dn_date_bs = ""
 
         with transaction.atomic():
-            ym = timezone.now().strftime("%Y%m")
-            dn_count = DebitNote.objects.filter(company=comp, debit_note_number__startswith=f"DN-{ym}").count() + 1
-            debit_note_number = f"DN-{ym}-{dn_count:04d}"
+            # =========================================================================
+            # 1. Negative Stock & Over-Return Guard (Atomic Row Lock)
+            # =========================================================================
+            for item in valid_items:
+                product_obj = Product.objects.select_for_update().get(id=item["product"].id)
+                return_qty = item["quantity"]
 
-            jv_count = Transaction.objects.filter(company=comp, voucher_number__startswith=f"JV-{ym}").count() + 1
-            jv_number = f"JV-{ym}-{jv_count:04d}"
+                # 1a. Validate physical on-hand warehouse inventory availability
+                last_stock = (
+                    StockLedgerEntry.objects.filter(
+                        company=comp, product=product_obj, warehouse=warehouse
+                    )
+                    .order_by("-entry_date", "-created_at")
+                    .first()
+                )
+                available_qty = last_stock.balance_quantity if last_stock else Decimal("0.000")
 
+                if return_qty > available_qty:
+                    messages.error(
+                        request,
+                        f"Purchase return prohibited: You cannot return {return_qty:g} units of '{product_obj.name}'. "
+                        f"Only {available_qty:g} units are physically available in inventory.",
+                    )
+                    return redirect("debit-note-create")
+
+                # 1b. Validate against originally billed quantity on the purchase bill
+                if return_qty > item["billed_qty"]:
+                    messages.error(
+                        request,
+                        f"Invalid return: You entered {return_qty:g} units for '{product_obj.name}', "
+                        f"but only {item['billed_qty']:g} units were billed on Bill #{original_pinv.supplier_invoice_no}.",
+                    )
+                    return redirect("debit-note-create")
+
+            # =========================================================================
+            # 2. IRD Fiscal Year-Based Sequential Number Generation
+            # =========================================================================
+            debit_note_number = generate_next_voucher_number(
+                company=comp,
+                doc_type=DocumentSequence.DocumentType.DEBIT_NOTE,
+                ad_date=date_val,
+                default_prefix="DN",
+            )
+
+            jv_number = generate_next_voucher_number(
+                company=comp,
+                doc_type=DocumentSequence.DocumentType.JOURNAL_VOUCHER,
+                ad_date=date_val,
+                default_prefix="JV",
+            )
+
+            # =========================================================================
+            # 3. Financial Double-Entry Reversal (Accounts Payable & Capitalized Stock)
+            # =========================================================================
             txn = Transaction.objects.create(
                 company=comp,
                 date=date_val,
@@ -3017,6 +3174,7 @@ def debit_note_create_view(request):
             vat_input_account = Account.objects.filter(company=comp, code="1050").first()
             ap_account = supplier.ledger_account or Account.objects.filter(company=comp, code="2010").first()
 
+            # Debit Supplier AP (Reduces payable liability)
             JournalEntry.objects.create(
                 transaction=txn,
                 account=ap_account,
@@ -3025,6 +3183,7 @@ def debit_note_create_view(request):
                 line_description=f"Debit Note {debit_note_number} reduction in payable",
             )
 
+            # Credit Inventory Stock (Relieves inventory asset at original landed cost)
             JournalEntry.objects.create(
                 transaction=txn,
                 account=inventory_account,
@@ -3033,6 +3192,7 @@ def debit_note_create_view(request):
                 line_description=f"Stock reversal at landed cost on {debit_note_number}",
             )
 
+            # Credit VAT Input Account (Reverses Input VAT credit claimed)
             if total_vat > Decimal("0.00") and vat_input_account:
                 JournalEntry.objects.create(
                     transaction=txn,
@@ -3042,6 +3202,9 @@ def debit_note_create_view(request):
                     line_description=f"Input VAT reversal on purchase return {debit_note_number}",
                 )
 
+            # =========================================================================
+            # 4. Create Debit Note Header
+            # =========================================================================
             dn = DebitNote.objects.create(
                 company=comp,
                 debit_note_number=debit_note_number,
@@ -3061,6 +3224,9 @@ def debit_note_create_view(request):
                 created_by=request.user,
             )
 
+            # =========================================================================
+            # 5. Save Line Items & Deduct Stock in StockLedgerEntry
+            # =========================================================================
             for item in valid_items:
                 DebitNoteItem.objects.create(
                     debit_note=dn,
@@ -3096,9 +3262,12 @@ def debit_note_create_view(request):
                     out_quantity=item["quantity"],
                     unit_cost=item["landed"],
                     balance_quantity=prev_qty - item["quantity"],
-                    balance_value=prev_val - line_inv_val,
+                    balance_value=max(Decimal("0.0000"), prev_val - line_inv_val),
                 )
 
+            # =========================================================================
+            # 6. Audit Trail Log
+            # =========================================================================
             AuditLog.objects.create(
                 company=comp,
                 user=request.user,
@@ -3107,10 +3276,10 @@ def debit_note_create_view(request):
                 table_name="DebitNote",
                 record_id=debit_note_number,
                 ip_address=request.META.get("REMOTE_ADDR"),
-                details=f"Issued Schedule 8 Debit Note {debit_note_number} to {supplier.name} for Rs. {grand_total} (BS: {dn_date_bs})",
+                details=f"Issued Schedule 8 Debit Note {debit_note_number} to {supplier.name} for Rs. {grand_total} (BS: {dn_date_bs}). Outward stock reversed.",
             )
 
-        messages.success(request, f"Debit Note {debit_note_number} generated and stock reversed.")
+        messages.success(request, f"Debit Note {debit_note_number} generated and stock relieved from inventory.")
         return redirect("debit-note-detail", debit_note_id=dn.id)
 
     purchases = PurchaseInvoice.objects.filter(company=comp, is_locked=True).order_by("-supplier_invoice_date", "-created_at")[:50]
@@ -3476,4 +3645,330 @@ def voucher_series_settings_view(request):
             "active_fy": active_fy,
             "sequences": sequences,
         },
+    )
+    
+@login_required
+def download_opening_stock_template(request):
+    """
+    Generates a pre-formatted Excel template for bulk inventory opening stock onboarding.
+    Includes current active products and instructions.
+    """
+    comp = request.company
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Opening Stock"
+
+    headers = [
+        "Item Code", 
+        "Item Name", 
+        "HS Code", 
+        "Unit", 
+        "Opening Quantity", 
+        "Unit Cost (Rs.)", 
+        "Warehouse Code"
+    ]
+    ws.append(headers)
+
+    # Styling header row
+    header_fill = PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    thin_border = Border(
+        left=Side(style='thin', color='CBD5E1'),
+        right=Side(style='thin', color='CBD5E1'),
+        top=Side(style='thin', color='CBD5E1'),
+        bottom=Side(style='thin', color='CBD5E1')
+    )
+
+    for col_idx in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin_border
+
+    # Pre-populate with existing company products (if any) or sample rows
+    products = Product.objects.filter(company=comp, is_active=True).order_by("name")
+    default_wh = Warehouse.objects.filter(company=comp, is_default=True).first()
+    wh_code = default_wh.code if default_wh else "WH-MAIN"
+
+    if products.exists():
+        for p in products:
+            ws.append([
+                p.code or "",
+                p.name,
+                p.hs_code or "",
+                p.unit or "Pcs",
+                0.000,
+                float(p.purchase_rate or p.selling_price or 0.0),
+                wh_code
+            ])
+    else:
+        # Sample rows for new onboarding
+        ws.append(["PRD-0001", "Sample Item A", "3209.10", "Pcs", 50.000, 1250.00, wh_code])
+        ws.append(["PRD-0002", "Sample Item B", "3208.90", "Box", 20.000, 450.00, wh_code])
+
+    # Auto-adjust column widths
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = openpyxl.utils.get_column_letter(col[0].column)
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
+
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response["Content-Disposition"] = f'attachment; filename="EasyLedger_Opening_Stock_Template.xlsx"'
+    wb.save(response)
+    return response
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def bulk_upload_opening_stock(request):
+    """
+    Parses and commits bulk opening inventory from Excel (.xlsx) or CSV.
+    Creates missing products, mutates StockLedgerEntry, and posts a balanced JV.
+    """
+    comp = request.company
+    default_warehouse = Warehouse.objects.filter(company=comp, is_default=True).first()
+    if not default_warehouse:
+        default_warehouse = Warehouse.objects.create(
+            company=comp, code="WH-MAIN", name="Main Warehouse", is_default=True
+        )
+
+    if request.method == "POST":
+        upload_file = request.FILES.get("file")
+        entry_date = request.POST.get("entry_date", timezone.now().strftime("%Y-%m-%d"))
+
+        if not upload_file:
+            messages.error(request, "Please choose an Excel (.xlsx) or CSV file to upload.")
+            return redirect("inventory-opening-upload")
+
+        filename = upload_file.name.lower()
+        rows_data = []
+
+        try:
+            if filename.endswith(".xlsx"):
+                wb = openpyxl.load_workbook(upload_file, data_only=True)
+                ws = wb.active
+                iter_rows = ws.iter_rows(values_only=True)
+                header = next(iter_rows, None)  # Skip header row
+                for idx, row in enumerate(iter_rows, start=2):
+                    if not row or all(v is None or str(v).strip() == "" for v in row):
+                        continue
+                    rows_data.append((idx, row))
+            elif filename.endswith(".csv"):
+                file_text = upload_file.read().decode("utf-8-sig")
+                reader = csv.reader(io.StringIO(file_text))
+                header = next(reader, None)
+                for idx, row in enumerate(reader, start=2):
+                    if not row or all(v.strip() == "" for v in row):
+                        continue
+                    rows_data.append((idx, row))
+            else:
+                messages.error(request, "Unsupported file format. Please upload an .xlsx or .csv file.")
+                return redirect("inventory-opening-upload")
+        except Exception as e:
+            messages.error(request, f"Failed to parse file: {str(e)}")
+            return redirect("inventory-opening-upload")
+
+        if not rows_data:
+            messages.error(request, "The uploaded file does not contain any data rows.")
+            return redirect("inventory-opening-upload")
+
+        errors = []
+        parsed_items = []
+        total_valuation = Decimal("0.00")
+
+        # Row validation loop
+        for row_num, row in rows_data:
+            code = str(row[0] or "").strip()
+            name = str(row[1] or "").strip()
+            hs_code = str(row[2] or "").strip()
+            unit = str(row[3] or "Pcs").strip()
+            qty_raw = row[4]
+            cost_raw = row[5]
+            wh_code = str(row[6] or "").strip() if len(row) > 6 else ""
+
+            if not name and not code:
+                continue
+
+            if not name:
+                errors.append(f"Row {row_num}: Item Name cannot be empty.")
+                continue
+
+            try:
+                qty = Decimal(str(qty_raw or "0")).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+                if qty < Decimal("0.000"):
+                    errors.append(f"Row {row_num} ('{name}'): Quantity cannot be negative.")
+                    continue
+            except Exception:
+                errors.append(f"Row {row_num} ('{name}'): Invalid numeric quantity '{qty_raw}'.")
+                continue
+
+            try:
+                unit_cost = Decimal(str(cost_raw or "0")).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+                if unit_cost < Decimal("0.0000"):
+                    errors.append(f"Row {row_num} ('{name}'): Unit Cost cannot be negative.")
+                    continue
+            except Exception:
+                errors.append(f"Row {row_num} ('{name}'): Invalid numeric unit cost '{cost_raw}'.")
+                continue
+
+            # Only process if qty is greater than 0
+            if qty > Decimal("0.000"):
+                line_val = (qty * unit_cost).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                total_valuation += line_val
+
+                parsed_items.append({
+                    "row_num": row_num,
+                    "code": code,
+                    "name": name,
+                    "hs_code": hs_code,
+                    "unit": unit,
+                    "qty": qty,
+                    "unit_cost": unit_cost,
+                    "line_val": line_val,
+                    "wh_code": wh_code,
+                })
+
+        if errors:
+            for err in errors[:8]:
+                messages.error(request, err)
+            if len(errors) > 8:
+                messages.error(request, f"...and {len(errors) - 8} more errors.")
+            return render(request, "accounting/opening_stock_upload.html", {"entry_date": entry_date})
+
+        if not parsed_items:
+            messages.warning(request, "No rows with opening quantity > 0 were found.")
+            return redirect("inventory-opening-upload")
+
+        # Atomic commit
+        with transaction.atomic():
+            vat_tax = TaxConfiguration.objects.filter(
+                company=comp, tax_type=TaxType.VAT, is_active=True
+            ).first()
+
+            # 1. Post/get products & write StockLedgerEntry
+            for item in parsed_items:
+                product = None
+                if item["code"]:
+                    product = Product.objects.filter(company=comp, code__iexact=item["code"]).first()
+                if not product:
+                    product = Product.objects.filter(company=comp, name__iexact=item["name"]).first()
+
+                if not product:
+                    # Auto-create missing master
+                    from accounting.views import get_next_product_code
+                    assigned_code = item["code"] or get_next_product_code(comp)
+                    product = Product.objects.create(
+                        company=comp,
+                        code=assigned_code,
+                        name=item["name"],
+                        hs_code=item["hs_code"] or "-",
+                        unit=item["unit"] or "Pcs",
+                        selling_price=item["unit_cost"],
+                        purchase_rate=item["unit_cost"],
+                        is_active=True,
+                    )
+                    if vat_tax:
+                        product.taxes.add(vat_tax)
+                else:
+                    if item["unit_cost"] > Decimal("0.0000"):
+                        product.purchase_rate = item["unit_cost"]
+                        product.save(update_fields=["purchase_rate"])
+
+                target_wh = default_warehouse
+                if item["wh_code"]:
+                    found_wh = Warehouse.objects.filter(company=comp, code__iexact=item["wh_code"]).first()
+                    if found_wh:
+                        target_wh = found_wh
+
+                last_entry = StockLedgerEntry.objects.filter(
+                    company=comp, product=product, warehouse=target_wh
+                ).order_by("-entry_date", "-created_at").first()
+
+                prev_qty = last_entry.balance_quantity if last_entry else Decimal("0.000")
+                prev_val = last_entry.balance_value if last_entry else Decimal("0.0000")
+
+                new_qty = prev_qty + item["qty"]
+                new_val = prev_val + item["line_val"]
+
+                StockLedgerEntry.objects.create(
+                    company=comp,
+                    product=product,
+                    warehouse=target_wh,
+                    entry_date=entry_date,
+                    entry_type=StockLedgerEntry.EntryType.OPENING,
+                    reference_number=f"INIT-STOCK-{comp.id}",
+                    in_quantity=item["qty"],
+                    out_quantity=Decimal("0.000"),
+                    unit_cost=item["unit_cost"],
+                    balance_quantity=new_qty,
+                    balance_value=new_val,
+                )
+
+            # 2. Financial Ledger Double-Entry Posting
+            if total_valuation > Decimal("0.00"):
+                jv_number = generate_next_voucher_number(
+                    company=comp,
+                    doc_type=DocumentSequence.DocumentType.JOURNAL_VOUCHER,
+                    ad_date=entry_date,
+                    default_prefix="JV",
+                )
+
+                txn = Transaction.objects.create(
+                    company=comp,
+                    date=entry_date,
+                    voucher_number=jv_number,
+                    reference="OPENING-STOCK",
+                    narration=f"Inventory Opening Balance Bulk Import ({len(parsed_items)} items)",
+                )
+
+                inv_account, _ = Account.objects.get_or_create(
+                    company=comp,
+                    code="1040",
+                    defaults={"name": "Inventory Stock Asset", "account_type": AccountType.ASSET},
+                )
+                opening_reserve, _ = Account.objects.get_or_create(
+                    company=comp,
+                    code="3010",
+                    defaults={"name": "Owner Capital / Opening Reserve", "account_type": AccountType.EQUITY},
+                )
+
+                JournalEntry.objects.create(
+                    transaction=txn,
+                    account=inv_account,
+                    debit=total_valuation,
+                    credit=Decimal("0.00"),
+                    line_description=f"Opening inventory valuation ({len(parsed_items)} items)",
+                )
+                JournalEntry.objects.create(
+                    transaction=txn,
+                    account=opening_reserve,
+                    debit=Decimal("0.00"),
+                    credit=total_valuation,
+                    line_description="Opening stock valuation credited to equity",
+                )
+
+            AuditLog.objects.create(
+                company=comp,
+                user=request.user,
+                username=request.user.username,
+                action="CREATE",
+                table_name="StockLedgerEntry",
+                record_id="BULK-OPENING",
+                ip_address=request.META.get("REMOTE_ADDR"),
+                details=f"Imported opening stock for {len(parsed_items)} products. Total Asset Valuation: Rs. {total_valuation:,.2f}",
+            )
+
+        messages.success(
+            request,
+            f"Successfully imported opening stock for {len(parsed_items)} items! Total Valuation: Rs. {total_valuation:,.2f}"
+        )
+        return redirect("stock-summary")
+
+    return render(
+        request,
+        "accounting/opening_stock_upload.html",
+        {"entry_date": timezone.now().strftime("%Y-%m-%d"), "default_warehouse": default_warehouse}
     )

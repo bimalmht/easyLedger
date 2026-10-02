@@ -18,8 +18,8 @@
     <!-- Top Fields: Invoice Selection & Reason -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div>
-        <label class="block font-semibold text-slate-700 mb-1">Original Purchase Invoice (Mandatory Ref)</label>
-        <select name="purchase_invoice_id" id="purchaseInvoiceSelect" onchange="fetchPurchaseItems(this.value)" required class="w-full border border-slate-300 rounded-lg p-2.5 bg-white">
+        <label class="block font-semibold text-slate-700 mb-1">Original Purchase Invoice (Mandatory Ref) *</label>
+        <select name="purchase_invoice_id" id="purchaseInvoiceSelect" onchange="fetchPurchaseItems(this.value)" required class="w-full border border-slate-300 rounded-lg p-2.5 bg-white focus:ring-1 focus:ring-indigo-500">
           <option value="">-- Select Original Purchase Bill --</option>
           {% for p in purchases %}
             <option value="{{ p.id }}">
@@ -31,13 +31,13 @@
       </div>
 
       <div>
-        <label class="block font-semibold text-slate-700 mb-1">Debit Note Date</label>
-        <input type="date" name="date" value="{% now 'Y-m-d' %}" required class="w-full border border-slate-300 rounded-lg p-2.5">
+        <label class="block font-semibold text-slate-700 mb-1">Debit Note Date *</label>
+        <input type="date" name="date" value="{% now 'Y-m-d' %}" required class="w-full border border-slate-300 rounded-lg p-2.5 font-mono focus:ring-1 focus:ring-indigo-500">
       </div>
 
       <div>
-        <label class="block font-semibold text-slate-700 mb-1">Reason for Issuance (डेबिट नोट जारी गर्नुको कारण)</label>
-        <select name="reason" required class="w-full border border-slate-300 rounded-lg p-2.5 bg-white">
+        <label class="block font-semibold text-slate-700 mb-1">Reason for Issuance (डेबिट नोट जारी गर्नुको कारण) *</label>
+        <select name="reason" required class="w-full border border-slate-300 rounded-lg p-2.5 bg-white focus:ring-1 focus:ring-indigo-500">
           {% for code, label in reasons %}
             <option value="{{ code }}">{{ label }}</option>
           {% endfor %}
@@ -47,38 +47,41 @@
 
     <div>
       <label class="block font-semibold text-slate-700 mb-1">Reason Remarks / Specific Details</label>
-      <input type="text" name="reason_details" placeholder="e.g. Returned 2 damaged containers with broken packaging" class="w-full border border-slate-300 rounded-lg p-2.5">
+      <input type="text" name="reason_details" placeholder="e.g. Returned damaged items with defective packaging" class="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-1 focus:ring-indigo-500">
     </div>
 
     <!-- Items to Return Table -->
     <div>
       <div class="flex justify-between items-center mb-2">
         <h3 class="font-bold text-slate-800 text-sm">Goods to Return / Reverse</h3>
-        <span class="text-xs text-slate-400">Inventory will be reduced at the original capitalized unit landed cost</span>
+        <span class="text-xs text-slate-400">Inventory will be reduced at original capitalized unit landed cost</span>
       </div>
 
-      <table class="w-full border border-slate-200 rounded-lg overflow-hidden" id="itemsTable">
-        <thead class="bg-slate-50 border-b border-slate-200 font-bold text-slate-700">
-          <tr>
-            <th class="p-2 text-left w-1/3">Description of Goods</th>
-            <th class="p-2 text-center w-20">HS Code</th>
-            <th class="p-2 text-right w-20">Return Qty</th>
-            <th class="p-2 text-right w-24">Rate (Rs.)</th>
-            <th class="p-2 text-right w-24">Unit Landed</th>
-            <th class="p-2 text-right w-24">Taxable</th>
-            <th class="p-2 text-right w-20">VAT (13%)</th>
-            <th class="p-2 text-right w-24">Total</th>
-            <th class="p-2 text-center w-10"></th>
-          </tr>
-        </thead>
-        <tbody id="itemsBody" class="divide-y divide-slate-100 font-mono">
-          <tr>
-            <td colspan="9" class="p-6 text-center text-slate-400 font-sans">
-              Select an original purchase invoice above to load the items automatically.
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="overflow-x-auto border border-slate-200 rounded-lg">
+        <table class="w-full text-left border-collapse" id="itemsTable">
+          <thead class="bg-slate-50 border-b border-slate-200 font-bold text-slate-700 text-[11px]">
+            <tr>
+              <th class="p-2.5 w-1/3">Description of Goods</th>
+              <th class="p-2.5 text-center w-20">HS Code</th>
+              <th class="p-2.5 text-right w-24">Billed Qty</th>
+              <th class="p-2.5 text-right w-28">Return Qty *</th>
+              <th class="p-2.5 text-right w-24">Rate (Rs.)</th>
+              <th class="p-2.5 text-right w-24">Unit Landed</th>
+              <th class="p-2.5 text-right w-24">Taxable</th>
+              <th class="p-2.5 text-right w-20">VAT (13%)</th>
+              <th class="p-2.5 text-right w-24">Total</th>
+              <th class="p-2.5 text-center w-8"></th>
+            </tr>
+          </thead>
+          <tbody id="itemsBody" class="divide-y divide-slate-100 font-mono text-[11px]">
+            <tr>
+              <td colspan="10" class="p-6 text-center text-slate-400 font-sans">
+                Select an original purchase invoice above to load items.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Calculation Summary -->
@@ -106,7 +109,7 @@
 function fetchPurchaseItems(invoiceId) {
   if (!invoiceId) {
     document.getElementById('itemsBody').innerHTML = `
-      <tr><td colspan="9" class="p-6 text-center text-slate-400 font-sans">Select an original purchase invoice above to load items.</td></tr>
+      <tr><td colspan="10" class="p-6 text-center text-slate-400 font-sans">Select an original purchase invoice above to load items.</td></tr>
     `;
     document.getElementById('supplierSummary').innerText = '';
     calculateTotals();
@@ -121,31 +124,102 @@ function fetchPurchaseItems(invoiceId) {
       const tbody = document.getElementById('itemsBody');
       tbody.innerHTML = '';
 
+      if (!data.items || data.items.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="p-6 text-center text-slate-400 font-sans italic">No items found on this bill.</td></tr>`;
+        calculateTotals();
+        return;
+      }
+
       data.items.forEach(item => {
         const tr = document.createElement('tr');
-        tr.className = 'border-b border-slate-100';
+        tr.className = 'border-b border-slate-100 hover:bg-slate-50 transition-colors';
+        
+        const stockAvailable = parseFloat(item.stock_available !== undefined ? item.stock_available : 0);
+        const billedQty = parseFloat(item.quantity) || 0;
+        const isOutOfStock = stockAvailable <= 0;
+
+        tr.dataset.stockAvailable = stockAvailable;
+        tr.dataset.billedQty = billedQty;
+
         tr.innerHTML = `
-          <td class="p-2">
-            <input type="text" name="description[]" value="${item.description}" class="w-full border border-slate-300 rounded p-1 text-xs" required>
+          <td class="p-2.5">
+            <!-- Strict un-editable description sourced directly from master -->
             <input type="hidden" name="product_id[]" value="${item.product_id}">
+            <input type="hidden" name="description[]" value="${item.description}">
             <input type="hidden" name="unit_landed[]" value="${item.landing_cost_per_unit}">
             <input type="hidden" name="vat_rate[]" class="vatRate" value="${item.vat_rate}">
             <input type="hidden" name="excise_rate[]" class="exciseRate" value="${item.excise_rate}">
+            <div class="font-bold text-slate-800">${item.description}</div>
+            <div class="text-[10px] text-slate-400 font-mono flex items-center gap-2 mt-0.5">
+              <span>Billed: ${billedQty.toFixed(3)}</span>
+              <span>|</span>
+              <span class="${isOutOfStock ? 'text-rose-600 font-bold bg-rose-50 px-1 py-0.2 rounded border border-rose-200' : 'text-emerald-700 font-semibold bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200'}">
+                In-Stock: ${stockAvailable.toFixed(3)}
+              </span>
+            </div>
+            <p class="qtyError hidden text-[10px] text-rose-600 font-semibold mt-0.5 leading-tight"></p>
           </td>
-          <td class="p-2"><input type="text" name="hs_code[]" value="${item.hs_code}" class="w-full border border-slate-300 rounded p-1 text-xs text-center font-mono"></td>
-          <td class="p-2"><input type="number" step="0.001" min="0.001" max="${item.quantity}" name="quantity[]" value="${item.quantity}" oninput="calculateTotals()" class="qty w-full border border-slate-300 rounded p-1 text-xs text-right font-mono" required></td>
-          <td class="p-2"><input type="number" step="0.01" name="rate[]" value="${item.rate.toFixed(2)}" oninput="calculateTotals()" class="rate w-full border border-slate-300 rounded p-1 text-xs text-right font-mono" required></td>
-          <td class="p-2 text-right font-mono text-slate-500">${item.landing_cost_per_unit.toFixed(4)}</td>
-          <td class="p-2 text-right font-mono lineTaxable">0.00</td>
-          <td class="p-2 text-right font-mono lineVat">0.00</td>
-          <td class="p-2 text-right font-mono font-bold lineTotal">0.00</td>
-          <td class="p-2 text-center"><button type="button" onclick="this.closest('tr').remove(); calculateTotals();" class="text-rose-500 font-bold">&times;</button></td>
+          <td class="p-2.5 text-center font-mono">
+            <input type="hidden" name="hs_code[]" value="${item.hs_code}">
+            <span class="text-slate-600">${item.hs_code || '-'}</span>
+          </td>
+          <td class="p-2.5 text-right font-mono text-slate-500">${billedQty.toFixed(3)}</td>
+          <td class="p-2.5">
+            <input type="number" step="0.001" min="0" max="${Math.min(billedQty, stockAvailable)}" name="quantity[]" 
+                   value="${isOutOfStock ? '0.000' : Math.min(billedQty, stockAvailable).toFixed(3)}" 
+                   oninput="validateDebitQty(this)" 
+                   class="qty returnQty w-full border border-slate-300 rounded p-1.5 text-xs text-right font-mono focus:ring-1 focus:ring-indigo-500 ${isOutOfStock ? 'bg-slate-100 cursor-not-allowed text-slate-400' : ''}" 
+                   required ${isOutOfStock ? 'disabled' : ''}>
+          </td>
+          <td class="p-2.5 text-right font-mono">
+            <!-- Rate is locked to the original purchase bill rate -->
+            <input type="hidden" name="rate[]" value="${item.rate.toFixed(2)}" class="rate">
+            <span class="text-slate-700">${item.rate.toFixed(2)}</span>
+          </td>
+          <td class="p-2.5 text-right font-mono text-slate-500">${item.landing_cost_per_unit.toFixed(4)}</td>
+          <td class="p-2.5 text-right font-mono lineTaxable">0.00</td>
+          <td class="p-2.5 text-right font-mono lineVat">0.00</td>
+          <td class="p-2.5 text-right font-mono font-bold lineTotal">0.00</td>
+          <td class="p-2.5 text-center">
+            <button type="button" onclick="this.closest('tr').remove(); calculateTotals();" class="text-rose-500 font-bold hover:text-rose-700 text-sm" title="Remove item from this return">&times;</button>
+          </td>
         `;
         tbody.appendChild(tr);
       });
 
       calculateTotals();
+    })
+    .catch(err => {
+      console.error("Error loading purchase invoice items:", err);
+      alert("Failed to load bill items: " + err);
     });
+}
+
+function validateDebitQty(input) {
+  const tr = input.closest('tr');
+  const err = tr.querySelector('.qtyError');
+  const val = parseFloat(input.value) || 0;
+  const stockAvailable = parseFloat(tr.dataset.stockAvailable) || 0;
+  const billedQty = parseFloat(tr.dataset.billedQty) || 0;
+
+  if (val > stockAvailable) {
+    input.classList.add('border-rose-500', 'bg-rose-50');
+    err.innerText = `Cannot return more than available physical stock (${stockAvailable.toFixed(3)}).`;
+    err.classList.remove('hidden');
+    calculateTotals();
+    return false;
+  } else if (val > billedQty) {
+    input.classList.add('border-rose-500', 'bg-rose-50');
+    err.innerText = `Cannot return more than originally billed quantity (${billedQty.toFixed(3)}).`;
+    err.classList.remove('hidden');
+    calculateTotals();
+    return false;
+  } else {
+    input.classList.remove('border-rose-500', 'bg-rose-50');
+    err.classList.add('hidden');
+    calculateTotals();
+    return true;
+  }
 }
 
 function calculateTotals() {
@@ -159,7 +233,7 @@ function calculateTotals() {
     const vatRate = parseFloat(row.querySelector('.vatRate')?.value) || 0.0;
     const exciseRate = parseFloat(row.querySelector('.exciseRate')?.value) || 0.0;
 
-    if (qtyInput && rateInput) {
+    if (qtyInput && rateInput && !qtyInput.disabled) {
       const qty = parseFloat(qtyInput.value) || 0;
       const rate = parseFloat(rateInput.value) || 0;
       const taxable = qty * rate;
@@ -184,5 +258,37 @@ function calculateTotals() {
   document.getElementById('displayVat').innerText = totalVat.toFixed(2);
   document.getElementById('displayGrand').innerText = `Rs. ${grandTotal.toFixed(2)}`;
 }
+
+// Client-side submit guard preventing submission with over-returned quantities
+document.getElementById('dnForm').addEventListener('submit', function(e) {
+  let hasValid = false;
+  let hasError = false;
+
+  document.querySelectorAll('#itemsBody tr').forEach(row => {
+    const qtyInput = row.querySelector('.qty');
+    if (qtyInput && !qtyInput.disabled) {
+      const qty = parseFloat(qtyInput.value) || 0;
+      if (qty > 0) {
+        if (!validateDebitQty(qtyInput)) {
+          hasError = true;
+        } else {
+          hasValid = true;
+        }
+      }
+    }
+  });
+
+  if (hasError) {
+    e.preventDefault();
+    alert("Please fix return quantities that exceed current warehouse stock or billed quantities.");
+    return false;
+  }
+
+  if (!hasValid) {
+    e.preventDefault();
+    alert("Please enter a return quantity greater than 0 for at least one item.");
+    return false;
+  }
+});
 </script>
 {% endblock %}

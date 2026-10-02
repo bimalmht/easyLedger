@@ -271,7 +271,15 @@ document.addEventListener('DOMContentLoaded', () => {
     pInput.classList.remove('border-rose-500', 'bg-rose-50');
     if (pErr) pErr.classList.add('hidden');
 
+    // Set Product ID and Description fields for backend POST
     tr.querySelector('.productId').value = p.id;
+    const descInput = tr.querySelector('.productDesc');
+    if (descInput) descInput.value = p.name;
+
+    // Set HS Code if available
+    const hsInput = tr.querySelector('.hsCode');
+    if (hsInput && p.hs_code) hsInput.value = p.hs_code;
+
     tr.querySelector('.price').value = parseFloat(p.selling_price || p.unit_price || 0).toFixed(2);
 
     // Store live available stock and render stock status badge

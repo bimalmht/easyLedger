@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block title %}Bulk Upload Opening Stock - EasyLedger{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-4 text-xs">
+  
+  <!-- Breadcrumb & Header -->
+  <div class="flex items-center justify-between pb-3 border-b border-slate-200">
+    <div>
+      <h1 class="text-base font-bold text-slate-900">Upload Inventory Opening Balance</h1>
+      <p class="text-slate-500 text-[11px]">First-time onboarding: Import your initial stock and valuation via Excel or CSV</p>
+    </div>
+    <a href="{% url 'stock-summary' %}" class="text-indigo-600 font-semibold hover:underline">&larr; Back to Stock Summary</a>
+  </div>
+
+  <!-- Instruction & Template Card -->
+  <div class="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+    <div>
+      <h3 class="font-bold text-indigo-900 text-xs">Need the Excel Template?</h3>
+      <p class="text-[11px] text-indigo-700 mt-0.5">
+        Download the official template pre-populated with your existing product catalog and standard warehouse codes.
+      </p>
+    </div>
+    <a href="{% url 'inventory-opening-template' %}" class="shrink-0 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-xs transition-colors flex items-center gap-1.5">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+      Download Excel Template (.xlsx)
+    </a>
+  </div>
+
+  <!-- Upload Form Card -->
+  <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
+    <form method="POST" enctype="multipart/form-data" class="space-y-4">
+      {% csrf_token %}
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Effective Entry Date *</label>
+          <input type="date" name="entry_date" value="{{ entry_date }}" required class="w-full border border-slate-300 rounded-lg p-2.5 font-mono text-xs focus:ring-1 focus:ring-indigo-500">
+          <p class="text-[10px] text-slate-400 mt-0.5">Usually the beginning of the fiscal period (e.g. Shrawan 1).</p>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Default Warehouse</label>
+          <input type="text" value="{{ default_warehouse.name }} ({{ default_warehouse.code }})" disabled class="w-full border border-slate-200 bg-slate-50 text-slate-500 rounded-lg p-2.5 text-xs font-mono cursor-not-allowed">
+          <p class="text-[10px] text-slate-400 mt-0.5">Used if row warehouse code is omitted in the file.</p>
+        </div>
+      </div>
+
+      <!-- File Dropzone -->
+      <div>
+        <label class="block font-semibold text-slate-700 mb-1">Select Excel or CSV File (.xlsx, .csv) *</label>
+        <div class="border-2 border-dashed border-slate-300 hover:border-indigo-400 rounded-xl p-6 text-center transition-colors">
+          <input type="file" name="file" accept=".xlsx, .csv" required id="fileInput" class="hidden" onchange="updateFileName(this)">
+          <label for="fileInput" class="cursor-pointer flex flex-col items-center justify-center gap-1.5">
+            <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+            <span class="font-bold text-slate-700 text-xs" id="fileNameLabel">Click to browse or drag file here</span>
+            <span class="text-[10.5px] text-slate-400">Microsoft Excel (.xlsx) or Comma-Separated Values (.csv)</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Important Guidance Box -->
+      <div class="border border-slate-100 rounded-lg p-3 bg-slate-50 space-y-1 text-[11px] text-slate-600">
+        <div class="font-bold text-slate-700">Import Rules & Automatic Accounting:</div>
+        <ul class="list-disc list-inside space-y-0.5 text-slate-500">
+          <li><strong>Product Matching:</strong> Matches items by <span class="font-mono">Item Code</span> or <span class="font-mono">Item Name</span>. If an item does not exist, it will be automatically registered with default 13% VAT tagged.</li>
+          <li><strong>Accounting Voucher:</strong> An automated balanced Journal Entry (<span class="font-mono">JV</span>) is posted debiting <em>Inventory Asset (1040)</em> and crediting <em>Owner Capital / Opening Reserve (3010)</em>.</li>
+          <li><strong>Zero Stock Rows:</strong> Items with quantity <span class="font-mono">0</span> will be skipped from inventory balance creation.</li>
+        </ul>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+        <a href="{% url 'stock-summary' %}" class="px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-100 font-semibold">Cancel</a>
+        <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-xs transition-colors">
+          Upload & Post Opening Stock
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  function updateFileName(input) {
+    const label = document.getElementById('fileNameLabel');
+    if (input.files && input.files.length > 0) {
+      label.innerText = "Selected: " + input.files[0].name;
+      label.classList.add('text-indigo-600');
+    } else {
+      label.innerText = "Click to browse or drag file here";
+      label.classList.remove('text-indigo-600');
+    }
+  }
+</script>
+{% endblock %}
